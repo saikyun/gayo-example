@@ -1,5 +1,6 @@
-gayo
+# gayo
 
+## Installation
 ```
 $ yarn
 $ shadow-cljs watch bro
@@ -15,7 +16,8 @@ Then open `localhost:8021`.
 
 
 
--- Ignore these
+### Ignore these
+
 export NODE_OPTIONS=--max_old_space_size=4096
 
 rm -r node_modules/ .shadow-cljs/ targets/expo/node_modules/ targets/expo/.shadow-cljs/ targets/browser/public/js/ targets/expo/app/
