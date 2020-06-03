@@ -6,7 +6,7 @@ $ yarn
 $ shadow-cljs watch bro
 ```
 
-Then browse to [localhost:8021](localhost:8021)
+Then browse to [localhost:8021](http://localhost:8021)
 
 
 
