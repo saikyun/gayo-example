@@ -1,0 +1,65 @@
+;; shadow-cljs configuration
+{:source-paths
+ ["src/main" "../gayo/src"]
+ 
+ :dependencies
+ [[reagent "1.0.0-alpha2"]
+  [binaryage/devtools "0.9.11"]
+  [funcool/promesa "5.1.0"]
+  [cljs-bean "1.4.0"]
+  [com.taoensso/tufte "2.1.0"]]
+ 
+ :builds
+ {:bro
+  {:target :browser
+   
+   :compiler-options {:reader-features #{:browser}     
+                      :optimizations :simple
+                      :static-fns true
+                      :optimize-constants true} 
+   
+   :js-options {:js-package-dirs ["node_modules" "assets"]}
+   
+   :dev {:external-config
+         {:devtools/config
+          {:features-to-install [:formatters :hints]
+           :fn-symbol "F"
+           :print-config-overrides true}}}
+   
+   :release {}
+   
+   :modules {:main {:entries [boat.targets.browser]}}
+   
+   :output-dir "targets/browser/public/js"
+   :asset-path "/js"
+   
+   :devtools {:http-port 8021
+              :http-root "targets/browser/public"
+              :repl-pprint true
+              :repl-init-ns boat.game
+              :open-file-command
+              ["emacsclient" "-n" ["+%s:%s" :line :column] :file]}}
+  
+  :exp
+  {:target :react-native
+   :init-fn boat.targets.expo/init
+   :compiler-options {:optimizations :simple
+                      :reader-features #{:rn}}
+   
+   :js-options {:js-package-dirs ["node_modules" "targets/expo/node_modules"]}
+   
+   :dev {:external-config
+         {:devtools/config
+          {:features-to-install [:formatters :hints]
+           :fn-symbol "F"
+           :print-config-overrides true}}}
+   
+   :release {}
+   
+   :output-dir "targets/expo/app"
+   
+   :devtools {:repl-pprint true
+              :repl-init-ns boat.game
+              :preloads [shadow.expo.keep-awake]
+              :open-file-command
+              ["emacsclient" "-n" ["+%s:%s" :line :column] :file]}}}}

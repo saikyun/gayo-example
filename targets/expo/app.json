@@ -1,0 +1,49 @@
+{
+  "expo": {
+    "name": "Animal Capital Demo",
+    "slug": "animal-capital-demo",
+    "privacy": "public",
+    "entryPoint": "./app/index.js",
+    "sdkVersion": "36.0.0",
+    "platforms": [
+      "ios",
+      "android",
+      "web"
+    ],
+    "version": "1.0.1",
+    "orientation": "portrait",
+    "icon": "../../assets/icon.png",
+    "splash": {
+      "image": "../../assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "updates": {
+      "fallbackToCacheTimeout": 10000
+    },
+    "assetBundlePatterns": [
+      "../../assets/*"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "se.animalcapital.demo"
+    },
+    "android": {
+      "package": "se.animalcapital.demo"
+    },
+    "description": "",
+    "extra": {
+      "bugsnag": {
+        "apiKey": "52f9772070c6ac94703ddb5774d36309"
+      }
+    },
+    "hooks": {
+      "postPublish": [
+        {
+          "file": "@bugsnag/expo/hooks/post-publish.js",
+          "config": {}
+        }
+      ]
+    }
+  }
+}
