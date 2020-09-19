@@ -7,10 +7,12 @@
             [gayo.internal :as internal]
             [gayo.bmfont :as bmfont]            
             [gayo.text :as t]
+
+            [user]
             
             [boat.game :as game]))
 
-(defonce gameboard (js/require "../../../assets/scene.gltf"))
+(defonce gameboard (js/require "../../../assets/dumb_map.gltf"))
 
 (defn start-game
   [k]

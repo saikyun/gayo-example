@@ -111,7 +111,11 @@
 
 (defn key-down
   [ev]
-  #_  (data/add-event! ev))
+  (println ev)
+  ;;      (boat.game/try-shoot boat.game/main-char :k)
+  )
+
+;;(.addEventListener js/window "keydown" key-down)
 
 (defn mouse-wheel
   [ev]
@@ -188,15 +192,43 @@
            )
          #(log! "progress" (.-loaded %) (.-total %))
          #(do (js/console.log %) (throw %)))
-
+  
   )
 
 (def fps-count 0)
 (def fps-sum 0)
 
+(defn render!
+  [dt]
+  (when-not gayo-data/dont-render
+    (let [fps (js/Math.round (/ 1000.0 dt))]
+      (set! fps-count (inc fps-count))
+      (set! fps-sum (+ fps-sum fps))
+      
+      #_(when (<= 10 fps-count)
+          (let [fps-s (str (/ fps-sum fps-count))]
+            (bmfont/update-text* gayo-data/fps-text fps-s)
+            (set! fps-count 0)
+            (set! fps-sum 0)))
+      
+      (let [camera (.-camera gayo-data/view)]
+        (if-not gayo-data/loading
+          (do
+            (gayo-data/update! gayo-data/scene camera dt)
+            (anim/update-animations! 16 #_ dt)
+            (tw/update-tweens! #_ 16 dt))
+          (log! "loading!"))
+        
+        (h/run-hooks! :update {:dt dt})
+        (h/run-hooks! :second-update {:dt dt})      
+        
+        (.render gayo-data/composer))
+      
+      #?(:rn (.endFrameEXP gayo-data/glc)))))
+
 (defn next-frame
   [curr-time]
-  (if (not gayo-data/last-time)
+  (when-not gayo-data/last-time
     (set! gayo-data/last-time curr-time))
   
   (if (and
@@ -207,33 +239,8 @@
     (js/setTimeout #(js/requestAnimationFrame next-frame) 1000)
     (js/requestAnimationFrame next-frame))
   
-  (when-not gayo-data/dont-render
-    (let [dt (- curr-time gayo-data/last-time)
-          fps (js/Math.round (/ 1000.0 dt))]
-      (set! fps-count (inc fps-count))
-      (set! fps-sum (+ fps-sum fps))
-      
-      #_(when (<= 10 fps-count)
-          (let [fps-s (str (/ fps-sum fps-count))]
-            (bmfont/update-text* gayo-data/fps-text fps-s)
-            (set! fps-count 0)
-            (set! fps-sum 0)))
-      
-      (h/run-hooks! :update)
-      
-      (let [camera (.-camera gayo-data/view)]
-        (if-not gayo-data/loading
-          (do
-            (gayo-data/update! gayo-data/scene camera dt)
-            (anim/update-animations! 16 #_ dt)
-            (tw/update-tweens! #_ 16 dt))
-          (log! "loading!"))
-        
-        (.render gayo-data/composer))
-      
-      #?(:rn (.endFrameEXP gayo-data/glc))
-      
-      (set! gayo-data/last-time curr-time))))
+  (render! (- curr-time gayo-data/last-time))
+  (set! gayo-data/last-time curr-time))
 
 (defonce next-frame-running false)
 (defonce loaded-scenes (atom {}))

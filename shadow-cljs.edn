@@ -37,6 +37,7 @@
               :http-root "targets/browser/public"
               :repl-pprint true
               :repl-init-ns boat.game
+              :autobuild false
               :open-file-command
               ["emacsclient" "-n" ["+%s:%s" :line :column] :file]}}
   

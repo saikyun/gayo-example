@@ -1,13 +1,17 @@
 (ns gayo.scene
   (:require [gayo.state :as state]
+            [gayo.hooks :as hooks]
             [gayo.log :refer [log!]]
             [miracle.save :refer-macros [save save-do]]))
 
 (defn remove-obj!
   [o]
-  (if (and o (.-parent o))
-    (.remove (.-parent o) o)
-    (log! o "has no parent!")))
+  (when o
+    (save :hntsaoehns)
+    (hooks/hook- o)
+    (if (.-parent o)
+      (.remove (.-parent o) o)
+      (log! o "has no parent!"))))
 
 (defn clear-obj!
   [obj]

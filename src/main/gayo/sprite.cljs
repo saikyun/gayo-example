@@ -6,5 +6,3 @@
   (let [sm (THREE/SpriteMaterial. #js {:color 0xffffff :map texture}) 
         s (THREE/Sprite. sm)]
     s))
-
-

@@ -1,8 +1,7 @@
 (ns gayo.hooks
   (:require [miracle.save]
             [gayo.log :refer [log!]]
-            [gayo.state :refer [ensure-state!]]
-            [gayo.scene :refer [go->top-go]])
+            [gayo.state :refer [ensure-state!]])
   (:require-macros [miracle.save :refer [save save-do]]))
 
 (defonce all-hooks (atom {}))
@@ -36,12 +35,22 @@
   (reset! all-hooks {}))
 
 (defn hook-
-  ([{:keys [obj kind hook-name]}]
-   (hook- obj kind hook-name)
+  ([{:keys [obj kind hook-name] :as o}]
+   (if-not obj
+     (swap! all-hooks
+            (fn [hs]
+              (->> (map (fn [[k v]]
+                          [k (remove (fn [{:keys [obj]}]
+                                       (= obj o))
+                                     v)]) hs)
+                   (into {}))))
+     (if hook-name
+       (hook- obj kind hook-name)
+       (hook- obj kind)))
    :ok)
   ([robj rkind]
    (swap! all-hooks update rkind
-          #(filter (fn [{:keys [obj kind hook-name]}]
+          #(filter (fn [{:keys [obj kind]}]
                      (not (and (= obj robj)
                                (= kind rkind))))
                    %))
@@ -74,11 +83,11 @@
    (doseq [h (get @all-hooks kind)]
      (try
        (if data
-         (run h)
-         (run h data))
+         (run h data)
+         (run h))
        (catch js/Error e
          (save :hook-error)
-         (hook- h)
+         #_(hook- h)
          (throw e)))
      (when (some-> h :opts :once)
        (hook- h)))))
@@ -99,26 +108,3 @@
   
   (clear-all-hooks!)
   )
-
-(defn make-clickable!
-  [o f]
-  (ensure-state! o)
-  (set! (.. o -state -onClick) f))
-
-(defn clickable?
-  [o]
-  (some-> (go->top-go o) .-state .-onClick))
-
-(defn make-holdable!
-  [o down-f up-f]
-  (ensure-state! o)
-  (set! (.. o -state -hold) #js {:down down-f
-                                 :up up-f}))
-
-(defn holdable?
-  [o]
-  (some-> (go->top-go o) .-state .-hold))
-
-(defn draggable?
-  [o]
-  (some-> (go->top-go o) .-state .-draggable))
