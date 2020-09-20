@@ -408,7 +408,7 @@ gl_Position = projectionMatrix
         uv (js/Float32Array. (clj->js pre-uv))
         pre-vs (flatten (:poses poses))
         half-w (* 0.5 (:layout-width poses))
-        pre-vs (map-indexed 
+        pre-vs (map-indexed
                 #(if (= 0 (mod %1 3))
                    (- %2 half-w)
                    %2) pre-vs)
@@ -469,7 +469,7 @@ gl_Position = projectionMatrix
       (.. base -rotation (set (* 0.5 (- js/Math.PI)) 0 0))
       #_      (.. base -position (set 4 3 3))
       
-      (set! (.. base -userData -name) "yeah123")
+      (set! (.. base -userData -name) (str "text: " text))
       
       (def bbb base)
       (set! (.-textContent base) text)

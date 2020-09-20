@@ -46,8 +46,15 @@
   [loaded-gltf conf-k init-f]
   (set! gayo-data/loading true)
   
+  (println "dealing...")
+  
   (let [ld-scene (.. loaded-gltf -scene)]
-    (.add gayo-data/scene ld-scene))
+    (doseq [c (into [] (.-children ld-scene))]
+      (.add gayo-data/scene c)))
+  
+  (comment
+    (.-children gayo-data/scene)
+    )
   
   ;; Checks custom data, e.g. transparency  
   (.. gayo-data/scene (traverse scene/handle-attributes!))  

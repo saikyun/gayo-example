@@ -2,7 +2,9 @@
   (:require [clojure.core.reducers :as r] 
             [clojure.string :as str]             
             ["three" :as THREE]  
-            [promesa.core :as p]             
+            [promesa.core :as p]
+
+            [gayo.text :refer [set-text!]]
             
             [gayo.sprite :refer [sprite!]]
             [gayo.assets :as assets]
@@ -48,13 +50,13 @@
 
 (defn find-named
   [name]
-  (when-let [scene (some-> gayo-data/loaded-scene .-scene)]
+  (when-let [scene gayo-data/scene]
     (find-mesh-by-name scene name)))
 
 (defonce ui (THREE/Object3D.))
 
-(def main-chars [(find-named "Player")
-                 (find-named "Player.001")])
+(def main-chars (into [] (filter some? [(find-named "Player")
+                                        (find-named "Player.001")])))
 (def enemy (find-named "Enemy"))
 (def floor (find-named "Plane"))
 (def target (find-named "Target"))
@@ -71,11 +73,27 @@
 (def short-cooldown 0.1)
 
 (def hitted #js [])
-(def targeted #js [])
+
+(def base-hit-chance 0.5)
+(def reaction-time 250) ;; ms
 
 (defn damage
   [obj amount]
   (set! (.. obj -state -hp) (- (.. obj -state -hp) amount)))
+
+(defn is-moving?
+  [obj]
+  (boolean (some-> (.. obj -state -speed)
+                   (> snap-distance))))
+
+(defn alive?
+  [obj]
+  (boolean (some-> (.. obj -state -hp)
+                   (> 0))))
+
+(defn aims-at?
+  [o1 o2]
+  (= o2 (.. o1 -state -aimsAt)))
 
 (defn attack
   [attacker defender]
@@ -83,35 +101,53 @@
 
 (defn hit-chance
   [attacker defender]
-  0.25)
+  (* (if (aims-at? defender attacker) 0.25 1)
+     base-hit-chance))
+
+(comment
+  (set-text!
+   (first main-chars)
+   "0.25"
+   #js {:scale 3
+        :pos (THREE/Vector3. 0.8 1.8 0)
+        :color 0xffffff
+        :maxWidth nil})
+  
+  )
+
+(defn update-hp
+  [obj]
+  (let [hp-bar (.. obj -state -hpBar)
+        max-hp-bar (.. obj -state -maxHpBar)
+        tp (.. hp-bar -state -target -position)
+        hp (.. hp-bar -state -target -state -hp)
+        max-hp (.. hp-bar -state -target -state -maxHp)
+        percent (max 0 (/ hp max-hp))]
+    (save :aoehnts)
+    (.. hp-bar -scale (set percent 0.2 0.2))
+    (.. hp-bar -position (set (+ (.-x tp) (* 0.5 (- 1 percent))) (+ (.-y tp) 1.8) (.-z tp)))
+    
+    (.. max-hp-bar -scale (set 1 0.2 0.2))
+    (.. max-hp-bar -position (set (.-x tp) (+ (.-y tp) 1.7999) (.-z tp)))))
 
 (defn give-hp-bar
   [target]
   (p/let [gs (assets/load-texture "concrete_powder_green.png")
           rs (assets/load-texture "concrete_powder_red.png")]
-    (let [lul (sprite! gs)
-          lul2 (sprite! rs)]
+    (let [hp (sprite! gs)
+          max-hp (sprite! rs)]
       
-      (.add ui lul)
-      (.add ui lul2)
+      (.add ui hp)
+      (.add ui max-hp)
       
-      (ensure-state! lul)
-      (ensure-state! lul2)  
-      (set! (.. lul -state -target) target)
+      (ensure-state! hp)
+      (ensure-state! max-hp)  
+      (set! (.. hp -state -target) target)
       
-      (hook+ lul :second-update :hp
-             (fn [obj]
-               (let [tp (.. lul -state -target -position)
-                     hp (.. lul -state -target -state -hp)
-                     max-hp (.. lul -state -target -state -maxHp)
-                     percent (max 0 (/ hp max-hp))]
-                 (save :aoehnts)
-                 (.. obj -scale (set percent 0.2 0.2))
-                 (.. obj -position
-                     (set (+ (.-x tp) (* 0.5 (- 1 percent))) (+ (.-y tp) 1.8) (.-z tp)))
-                 
-                 (.. lul2 -scale (set 1 0.2 0.2))
-                 (.. lul2 -position (set (.-x tp) (+ (.-y tp) 1.7999) (.-z tp)))))))))
+      (set! (.. target -state -hpBar) hp)
+      (set! (.. target -state -maxHpBar) max-hp)
+      
+      (hook+ target :second-update :hp #'update-hp))))
 
 
 (defn create-line!
@@ -140,7 +176,7 @@
 (defn enemies
   [o]
   (cond ((into #{} main-chars) o)
-        , #{enemy}
+        , (into #{} (filter some? [enemy]))
         (= o enemy)
         , (into #{} main-chars)
         :else #{}))
@@ -149,54 +185,122 @@
   [o possibly-enemy]
   ((enemies o) possibly-enemy))
 
+(defn get-status
+  [o]
+  (cond (is-moving? o) "Run"
+        (.. o -state -aimsAt) (str "Aiming: " (let [a (.. o -state -aimsAt)]
+                                                (or (some-> a .-userData .-name) (.-name a))))
+        :else ""))
+
+(defn show-status
+  [o]
+  (when-not (.. o -state -status)
+    (set! (.. o -state -status) (THREE/Object3D.))
+    (.add gayo-data/scene (.. o -state -status)))
+  
+  (let [status (get-status o)
+        
+        status-o (.. o -state -status)
+        t (set-text!
+           status-o
+           status
+           #js {:scale 4
+                :color 0xffffff
+                :maxWidth nil})]
+    (.. status-o -position (copy (.-position o)))
+    
+    (set! (.. status-o -rotation -x) 0.45)
+    
+    (set! (.. status-o -position -x)
+          (+ (.. status-o -position -x) 1))
+    (set! (.. status-o -position -y)
+          (+ (.. status-o -position -y) 1.8))))
+
+(defn shoot
+  [shooter]
+  (when-let [target (.. shooter -state -aimsAt)]
+    (let [from-pos (.clone (.. shooter -position)) 
+          target-pos (.clone (.. target -position)) 
+          _ (set! (.. target-pos -y) (+ 0.4 (.. target-pos -y))) 
+          _ (set! (.. from-pos -y) (+ 0.4 (.. from-pos -y))) 
+          
+          dir (THREE/Vector3.)
+          target-dir (.normalize (.subVectors dir target-pos from-pos))
+          
+          from (.clone from-pos)
+          _ (set! (.-x from) (- (+ (rand 0.5) (.-x from)) 0.25))
+          _ (set! (.-z from) (- (+ (rand 0.5) (.-z from)) 0.25))
+          to (.clone target-pos)
+          _ (set! (.-x to) (- (+ (rand 0.5) (.-x to)) 0.25))
+          _ (set! (.-z to) (- (+ (rand 0.5) (.-z to)) 0.25))
+          line (create-line! from to #js {:color 0xffff00})]
+      
+      (js/setTimeout 
+       #(scene/remove-obj! line)
+       250)
+      
+      (.set raycaster from-pos target-dir)
+      (let [intersects (->> (.intersectObjects raycaster (into-array
+                                                          (filter #(and (not= ui %)
+                                                                        (not= shooter %))
+                                                                  (.-children gayo-data/scene)))
+                                               true)
+                            (filter #(some? (.-face %))))]
+        (if (some->> (first intersects) .-object (enemy-of? shooter))
+          (let [hc (hit-chance shooter target)]
+            (save :hntoae)
+            (set-text!
+             shooter
+             (str hc)
+             #js {:scale 3
+                  :pos (THREE/Vector3. 0.8 1.8 0)
+                  :color 0xffffff
+                  :maxWidth nil})
+            (when (> (rand) hc)
+              (attack shooter target)))
+          (set! (.. shooter -state -aimsAt) nil))))))
+
+(comment (enemies (first main-chars)))
+
 (defn try-shoot
   [obj]
-  (doseq [enemy (enemies obj)]
+  (doseq [enemy (filter alive? (enemies obj))]
     (let [dir (THREE/Vector3.)
           target-pos (.clone (.-position enemy))
           from-pos (.clone (.-position obj))
           _ (set! (.. target-pos -y) (+ 0.4 (.. target-pos -y)))
           _ (set! (.. from-pos -y) (+ 0.4 (.. from-pos -y)))
-          target (.normalize
-                  (.subVectors dir
-                               target-pos
-                               from-pos))]
-      (.set raycaster from-pos target)
+          target-dir (.normalize (.subVectors dir target-pos from-pos))]
       
-      (let [intersects (->> (.intersectObjects raycaster (into-array
-                                                          (filter #(not= ui %)
-                                                                  (.-children gayo-data/scene)))
-                                               true)
-                            (filter #(and (some? (.-face %))
-                                          (not= obj (.-object %)))))]
-        (set! targeted intersects)
-        
-        (if (some->> (first targeted) .-object (enemy-of? obj))
-          (let [target (.-object (first targeted))
-                from (.clone from-pos)
-                _ (set! (.-x from) (- (+ (rand 0.5) (.-x from)) 0.25))
-                _ (set! (.-z from) (- (+ (rand 0.5) (.-z from)) 0.25))
-                to (.clone target-pos)
-                _ (set! (.-x to) (- (+ (rand 0.5) (.-x to)) 0.25))
-                _ (set! (.-z to) (- (+ (rand 0.5) (.-z to)) 0.25))
-                line (create-line! from
-                                   to
-                                   #js {:color 0xffff00})]
-            (js/setTimeout 
-             #(scene/remove-obj! line)
-             500)
+      (.set raycaster from-pos target-dir)
+      (let [intersects 
+            (->> (.intersectObjects raycaster (into-array
+                                               (filter #(and (not= ui %)
+                                                             (not= obj %))
+                                                       (.-children gayo-data/scene)))
+                                    true)
+                 (filter #(some? (.-face %))))]
+        (if (some->> (.. obj -state -aimsAt) (alive?))
+          (let [target (.-object (first intersects))]
+            (set! (.. obj -state -cooldown) cooldown)
+            (set! (.. obj -state -aimsAt) target)
             
-            (save :htnaoes)
-            
-            (when (> (rand) (hit-chance obj target))
-              (attack obj target))
-            (set! (.. obj -state -cooldown) cooldown))
-          (set! (.. obj -state -cooldown) short-cooldown))))))
+            (js/setTimeout #(shoot obj) reaction-time))
+          (when (some->> (first intersects) .-object (enemy-of? obj))
+            (println "enemy!" obj (.-object (first intersects)))
+            (let [target (.-object (first intersects))]
+              (set! (.. obj -state -cooldown) cooldown)
+              (set! (.. obj -state -aimsAt) target)
+              (println "enemy!" obj (.. obj -state -aimsAt))
+              
+              (js/setTimeout #(shoot obj) reaction-time)))))))
+  
+  (when-not (.. obj -state -cooldown)
+    (set! (.. obj -state -cooldown) short-cooldown)))
 
 (defn take-aim
   [obj]
-  (when (and (or (not (.. obj -state -speed))
-                 (< (.. obj -state -speed) snap-distance))
+  (when (and (not (is-moving? obj))
              (not (.. obj -state -cooldown)))
     (try-shoot obj)))
 
@@ -211,6 +315,8 @@
 (defn move-to-target
   [obj]
   (when-let [target-pos (.. obj -state -target)]
+    (set! (.. obj -state -aimsAt) nil)
+
     (let [distance (.distanceTo (.. obj -position) target-pos)
           dir (THREE/Vector3.)]
       
@@ -266,12 +372,12 @@
     (give-hp-bar c)
     
     (hook+ c :update :move-to-target #'move-to-target)
-    
+    (hook+ c :second-update :show-status #'show-status)
     (hook+ c :update :die #'die)
-    
     (hook+ c :update :take-aim #'take-aim)
-    
     (hook+ c :update :reduce-cd #'reduce-cd))
+  
+  (hook+ enemy :update :show-status #'show-status)
   
   (set! (.. enemy -state -maxHp) 7)  
   (set! (.. enemy -state -hp) (.. enemy -state -maxHp))
@@ -320,6 +426,8 @@
   [_ camera _]
   (def camera camera)
   
+  (.. camera -rotation)
+  
   (when-let [c (and is-down (first (filter #(.. % -state -drag) main-chars)))]
     (.setFromCamera raycaster curr-pos camera)
     (let [intersects (.intersectObjects raycaster (.-children gayo-data/scene) true)]
@@ -335,19 +443,17 @@
               (create-line! (.. c -position (clone))
                             (.. target -position (clone)))))))
   
-  (set! (.. camera -position -x)
-        (- (.. camera -position -x) 0.01))
   
-  (.. camera -position (set
-                        (.. (first (filter #(< (.. % -state -hp) 0) main-chars)) -position -x)
-                        20
-                        (- (.. (first (filter #(< (.. % -state -hp) 0) main-chars)) -position -z) 10)))
   
-  (.. camera (lookAt (.-position (first (filter #(< (.. % -state -hp) 0) main-chars)))))
+  (when-let [cam-target (first (filter #(> (.. % -state -hp) 0) main-chars))]
+    (.. camera -position (set
+                          (+ (.. cam-target -position -x) 0)
+                          30
+                          (+ (.. cam-target -position -z) 20)))
+    
+    (.. camera (lookAt (.-position cam-target))))
   
-  #_(when-let [h (first hitted)]
-      (set! (.-x (.-position (.-object h)))
-            (.-x curr-pos))))
+  )
 
 (defn start
   [point scene camera]
