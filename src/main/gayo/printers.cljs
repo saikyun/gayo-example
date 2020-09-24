@@ -1,11 +1,13 @@
 (ns gayo.printers
-  (:require ["three" :as THREE]))
+  (:require ["three" :as THREE]
+            [goog.string :as gstring]
+            [goog.string.format]))
 
 (extend-type THREE/Vector3
   IPrintWithWriter
   (-pr-writer [a writer opts]
     (-write writer "#Vector3[")
-    (-write writer (str (.-x a) " " (.-y a) " " (.-z a)))
+    (-write writer (gstring/format "%.2f %.2f %.2f" (.-x a) (.-y a) (.-z a)))
     (-write writer "]")))
 
 (extend-type THREE/Box3
@@ -16,6 +18,14 @@
           max (.-max a)]
       (-write writer (str "[" (.-x min) " " (.-y min) " " (.-z min) "], "))
       (-write writer (str "[" (.-x max) " " (.-y max) " " (.-z max) "]")))
+    (-write writer "]")))
+
+(extend-type THREE/Raycaster
+  IPrintWithWriter
+  (-pr-writer [a writer opts]
+    (-write writer "#Raycaster[")
+    (when-let [dir (.-direction a)]
+      (-write writer (gstring/format "%.2f %.2f %.2f" (.-x dir) (.-y dir) (.-z dir))))
     (-write writer "]")))
 
 (extend-type THREE/Euler

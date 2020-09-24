@@ -33,7 +33,8 @@ rm -r node_modules/ .shadow-cljs/ targets/expo/node_modules/ targets/expo/.shado
 
 
 
-rm -r targets/browser/public/js/cljs-runtime
+rm -r targets/browser/public/js
+shadow-cljs release bro
 rm -r targets/browser/public/assets/
 cp -r assets targets/browser/public/
-surge targets/browser/public/
+surge targets/browser/public/ hard-range.surge.sh

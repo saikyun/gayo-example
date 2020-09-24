@@ -1,13 +1,16 @@
 (ns boat.targets.browser
   (:require [promesa.core :as p]
             [reagent.core :as r]
+            [reagent.dom :as rdom]
+            
+            [miracle.soar :as ms]
             
             [gayo.data :as gayo-data]
             [gayo.path :refer [path]]
             [gayo.internal :as internal]
             [gayo.bmfont :as bmfont]            
             [gayo.text :as t]
-
+            
             [user]
             
             [boat.game :as game]))
@@ -31,7 +34,10 @@
                 (set! t/shader s)
                 (set! t/text-texture texture)))))
 
+
 (defn ^:export init []
   (r/with-let [_ (preload!)]
     (set! gayo-data/dont-render true)
-    (start-game :first-real-game)))
+    (start-game :first-real-game))
+
+  (ms/start))

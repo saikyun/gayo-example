@@ -10,7 +10,6 @@
 
 #?(:browser (set! js/require identity))
 
-;; 
 (def ^{:doc "Create the needed `js/require`-statements."}
   assets* (assets-to-map "assets" "../../../"))
 

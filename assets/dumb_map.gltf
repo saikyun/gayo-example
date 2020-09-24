@@ -226,9 +226,9 @@
             "mesh" : 9,
             "name" : "Target",
             "translation" : [
-                -11.162160873413086,
+                -22.055896759033203,
                 0,
-                4.86478853225708
+                -3.256373882293701
             ]
         },
         {
@@ -401,10 +401,34 @@
         },
         {
             "doubleSided" : true,
-            "name" : "Material.002",
+            "name" : "Material.007",
             "pbrMetallicRoughness" : {
                 "baseColorTexture" : {
                     "index" : 4,
+                    "texCoord" : 0
+                },
+                "metallicFactor" : 0,
+                "roughnessFactor" : 0.5
+            }
+        },
+        {
+            "doubleSided" : true,
+            "name" : "Material.002",
+            "pbrMetallicRoughness" : {
+                "baseColorTexture" : {
+                    "index" : 5,
+                    "texCoord" : 0
+                },
+                "metallicFactor" : 0,
+                "roughnessFactor" : 0.5
+            }
+        },
+        {
+            "doubleSided" : true,
+            "name" : "Material.006",
+            "pbrMetallicRoughness" : {
+                "baseColorTexture" : {
+                    "index" : 6,
                     "texCoord" : 0
                 },
                 "metallicFactor" : 0,
@@ -548,7 +572,8 @@
                         "NORMAL" : 32,
                         "TEXCOORD_0" : 33
                     },
-                    "indices" : 34
+                    "indices" : 34,
+                    "material" : 4
                 }
             ]
         },
@@ -562,7 +587,7 @@
                         "TEXCOORD_0" : 37
                     },
                     "indices" : 7,
-                    "material" : 4
+                    "material" : 5
                 }
             ]
         },
@@ -660,7 +685,7 @@
                         "TEXCOORD_0" : 58
                     },
                     "indices" : 7,
-                    "material" : 4
+                    "material" : 6
                 }
             ]
         }
@@ -680,6 +705,12 @@
         },
         {
             "source" : 4
+        },
+        {
+            "source" : 4
+        },
+        {
+            "source" : 5
         }
     ],
     "images" : [
@@ -707,6 +738,11 @@
             "mimeType" : "image/png",
             "name" : "wool_colored_yellow",
             "uri" : "wool_colored_yellow.png"
+        },
+        {
+            "mimeType" : "image/png",
+            "name" : "concrete_powder_magenta",
+            "uri" : "concrete_powder_magenta.png"
         }
     ],
     "accessors" : [

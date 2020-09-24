@@ -10,16 +10,7 @@
   [com.taoensso/tufte "2.1.0"]]
  
  :builds
- {:app {:target :browser
-        :output-dir "public/js"
-        :asset-path "js"
-        :modules {:main {:entries [starter.core]}}
-        :devtools {:before-load starter.core/stop
-                   :after-load starter.core/start
-                   :http-root "public"
-                   :http-port 8020}}
-  
-  :bro
+ {:bro
   {:target :browser
    
    :compiler-options {:reader-features #{:browser}     

@@ -1,5 +1,10 @@
 (ns user
-  (:require [gayo.internal]))
+  (:require [gayo.data]
+            [gayo.internal]))
+
+(defn only-render
+  []
+  (.render gayo.data/composer))
 
 (defn refresh!
   []
