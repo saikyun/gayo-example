@@ -1,7 +1,7 @@
 (ns miracle.soar
   (:require [user]
             ["three" :as THREE]
-            [gayo.state :as state :refer [state upd!]]
+            [gayo.state :as state :refer [state update-state!]]
             [reagent.core :as r]
             [reagent.dom :as rdom]
             [cljs-bean.core :refer [->clj]]
@@ -61,11 +61,12 @@
 
 (defonce watching (r/atom nil))
 
-(declare render)
+(declare render start)
 
 (defn watch
   [o]
-  (state/watch o)
+  (when (state/watch o)
+    (start))
   (reset! watching (.-state o))
   ;;(reset! watching {:a (rand 123)})
   #_(when-not (identical? o watching)
@@ -87,7 +88,6 @@
 
 (defn input-vector3
   [k v]
-  (println "render input")
   [:<> [:input {:on-focus #(do (reset! selected-field [k :x])
                                (println "sel field" @selected-field)
                                (reset! selected-value (.-x v)))
@@ -125,13 +125,13 @@
                  :width "300px"
                  :padding "4px"}}
    "Watcher"
-   (when-let [o @state/watched-o]
+   (when-let [o state/watched-o]
      (into [:div {:style {:display "grid"
                           :width "300px"
                           :grid-template-columns "repeat(2, fit-content(20%))"
                           :grid-gap "10px"}}]
            (concat
-            (for [[k v] (.-state o)]
+            (for [[k v] @(.-state o)]
               [:<>
                [:div (pr-str k)]
                [input k v]]))))])

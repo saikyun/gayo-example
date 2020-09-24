@@ -1,10 +1,13 @@
 (ns gayo.state
   (:require [clojure.string :as str]))
 
+(def watched-o nil)
+(defn debug [])
+
 (defn camel-case
   [s]
-  (-> (str/replace s #"-(.)" (fn [[_ char]]
-                               (str/upper-case char)))
+  (-> (str/replace s #"-([A-Za-z])" (fn [[_ char]]
+                                      (str/upper-case char)))
       (str/replace #"-" "")))
 
 (defn convert-name
@@ -14,15 +17,51 @@
     (camel-case (name s))))
 
 (defn attr
-  [o k]
-  `(.. ~o ~'-state ~(symbol (str "-" (convert-name k)))))
+  [o & ks]
+  `(.. ~o ~'-state ~@(map #(symbol (str "-" (convert-name %)))
+                          ks)))
 
 (defmacro state
-  [o k]
-  (attr o k))
+  ([o]
+   `(cljs-bean.core/->clj (~'.-state ~o)))
+  ([o k]
+   `(if (identical? ~o ~'gayo.state/watched-o)
+      (~k @(~'.-state ~o))
+      ~(attr o k)))
+  ([o k & ks]
+   (concat `(-> (state ~o ~k))
+           (map (fn [k] `(state ~k)) ks))))
 
-(defmacro upd!
+(comment
+  (macroexpand '(state o :a :b :c))
+  
+  (macroexpand '(state o :a :b))
+  )
+
+(defmacro state+
+  ([o k v]
+   `(if (identical? ~o ~'gayo.state/watched-o)
+      (do (debug ~o ~k ~v ~(meta &form))
+          (swap! (~'.-state ~o) assoc ~k ~v)
+          ~v)
+      (set! ~(attr o k) ~v)))
+  ([o k1 v1 & kvs]
+   `(do (state+ ~o ~k1 ~v1)
+        ~@(for [[k v] (partition 2 kvs)]
+            `(state+ ~o ~k ~v)))))
+
+(defmacro update-state!
   [o k f & args]
-  (let [a (attr o k)]
-    `(let [v# ~a]
-       (set! ~a (apply ~f v# ~args)))))
+  `(if (identical? ~o ~'gayo.state/watched-o)
+     (let [~'v (apply ~f (~k @(~'.-state ~o)) ~(vec args))]
+       (debug ~o ~k ~'v ~(meta &form))
+       (swap! (~'.-state ~o) assoc ~k ~'v)
+       ~'v)
+     (state+ ~o ~k (apply ~f ~(attr o k) ~(vec args)))))
+
+(comment
+  (gayo.state/attr 'o :damage)
+  
+  (macroexpand '(state+ o :a 10, :b 20, :c 30))
+  
+  )
