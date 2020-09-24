@@ -1,16 +1,25 @@
 ;; shadow-cljs configuration
 {:source-paths
- ["src/main" "../gayo/src"]
+ ["src/main"]
  
  :dependencies
- [[reagent "1.0.0-alpha2"]
+ [[reagent "1.0.0-alpha2" :exclusions [cljsjs/react cljsjs/react-dom]]
   [binaryage/devtools "0.9.11"]
   [funcool/promesa "5.1.0"]
   [cljs-bean "1.4.0"]
   [com.taoensso/tufte "2.1.0"]]
  
  :builds
- {:bro
+ {:app {:target :browser
+        :output-dir "public/js"
+        :asset-path "js"
+        :modules {:main {:entries [starter.core]}}
+        :devtools {:before-load starter.core/stop
+                   :after-load starter.core/start
+                   :http-root "public"
+                   :http-port 8020}}
+  
+  :bro
   {:target :browser
    
    :compiler-options {:reader-features #{:browser}     
@@ -18,7 +27,8 @@
                       :static-fns true
                       :optimize-constants true} 
    
-   :js-options {:js-package-dirs ["node_modules" "assets"]}
+   :js-options {:js-package-dirs ["node_modules"
+                                  "targets/browser/public/assets"]}
    
    :dev {:external-config
          {:devtools/config
@@ -37,7 +47,7 @@
               :http-root "targets/browser/public"
               :repl-pprint true
               :repl-init-ns boat.game
-              :autobuild false
+              :autobuild true
               :open-file-command
               ["emacsclient" "-n" ["+%s:%s" :line :column] :file]}}
   
