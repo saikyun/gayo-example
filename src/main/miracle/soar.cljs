@@ -118,23 +118,28 @@
          THREE/Vector3 [input-vector3 k v]
          [default-input k v])])
 
+(defonce opened (r/atom false))
+
 (defn intro
   []
   [:div {:style {:background-color "rgb(89, 0, 90)"
                  :color "rgba(255, 255, 255, 0.9)"
                  :width "300px"
                  :padding "4px"}}
-   "Watcher"
-   (when-let [o state/watched-o]
+   [:div {:style {:display "grid"
+                  :grid-template-columns "repeat(2, 1fr)"
+                  :grid-gap "10px"}}
+    [:h6 "Watcher"]
+    [:button {:on-click #(swap! opened not)} (if @opened "Hide" "Show")]]
+   (when-let [o (and @opened state/watched-o)]
      (into [:div {:style {:display "grid"
                           :width "300px"
                           :grid-template-columns "repeat(2, fit-content(20%))"
                           :grid-gap "10px"}}]
-           (concat
-            (for [[k v] @(.-state o)]
-              [:<>
-               [:div (pr-str k)]
-               [input k v]]))))])
+           (for [[k v] @(.-state o)]
+             [:<>
+              [:div (pr-str k)]
+              [input k v]])))])
 
 (defn render
   []

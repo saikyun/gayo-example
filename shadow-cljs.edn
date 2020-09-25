@@ -18,8 +18,7 @@
                       :static-fns true
                       :optimize-constants true} 
    
-   :js-options {:js-package-dirs ["node_modules"
-                                  "targets/browser/public/assets"]}
+   :js-options {:js-package-dirs ["node_modules" "targets/browser/public/assets"]}
    
    :dev {:external-config
          {:devtools/config

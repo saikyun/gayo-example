@@ -7,7 +7,7 @@
 
 (defn debug
   [o k v form-meta]
-  (when (and (#{:aims-at :hp :stagger} k)
+  (when (and (#{} k)
              (not= (get @(.-state o) k) v))
     (println k v form-meta)))
 

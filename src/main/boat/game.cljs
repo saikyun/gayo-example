@@ -1,4 +1,3 @@
-
 (ns boat.game
   (:require [clojure.core.reducers :as r] 
             [clojure.string :as str]
@@ -20,6 +19,7 @@
              :refer [find-mesh
                      find-mesh-by-name
                      find-meshes-by-data
+                     find-mesh-name-starts-with
                      go->card
                      go->top-go
                      go->zone-go]] 
@@ -75,6 +75,7 @@
 
 (def slowdown-distance 0.8)
 (def snap-distance 0.01)
+(def adjust-distance 0.5)
 
 (def cooldown 500)
 (def short-cooldown 0.1)
@@ -211,7 +212,7 @@
          points #js [start end]
          line-geom (-> (THREE/BufferGeometry.) (.setFromPoints points))
          line (THREE/Line. line-geom line-mat)]
-     (.add gayo-data/scene line) 
+     (.add ui line) 
      line)))
 
 (comment
@@ -295,7 +296,7 @@
   [shooter from-pos target-dir]
   (let [raycaster (or (state shooter :raycaster) 
                       (state+ shooter :raycaster (THREE/Raycaster.)))]
-    (set! (.. raycaster -far) (state shooter :range)) 
+    (set! (.. raycaster -far) (+ (state shooter :range) adjust-distance))
     (.set raycaster from-pos target-dir)                    
     (->> (.intersectObjects raycaster (into-array
                                        (filter #(and (not= ui %)
@@ -339,7 +340,9 @@
 
 (defn try-shoot
   [obj]
-  (doseq [enemy (filter alive? (enemies-of obj))
+  (doseq [enemy (sort-by #(.distanceTo (.-position obj)
+                                       (.-position %))
+                         (filter alive? (enemies-of obj)))
           :when (not (state obj :cooldown))]
     (let [dir (THREE/Vector3.)
           target-pos (.clone (.-position enemy))
@@ -348,22 +351,30 @@
           _ (set! (.. from-pos -y) (+ 0.4 (.. from-pos -y)))
           target-dir (.normalize (.subVectors dir target-pos from-pos))]
       
-      (when-let [intersects (seq (aim obj from-pos target-dir))]
+      (when-let [target (some-> (first (aim obj from-pos target-dir)) .-object)]
         #_(create-line! from-pos target-pos)
         (if (some->> (state obj :aims-at) (alive?))
-          (let [target (.-object (first intersects))]
+          (let [distance (.distanceTo from-pos (.. target -position))]
+            (if (<= distance (state obj :range))
+              (do (state+ obj :cooldown (+ cooldown (rand-int 100)))
+                  (js/setTimeout #(shoot obj) reaction-time))
+              (do (state+ obj :cooldown 1)
+                  (when (= obj (first main-chars))
+                    (let [dir (-> (.subVectors
+                                   (THREE/Vector3.)
+                                   (.-position target)
+                                   (.-position obj))
+                                  .normalize
+                                  (.multiplyScalar adjust-distance))]
+                      (save :hnostae)
+                      (state+ obj :target (.. obj -position (clone) (add dir))))))))
+          (when (some->> target (enemy-of? obj))
+            (save :crgeroca)
             (state+ obj :cooldown (+ cooldown (rand-int 100)))
-            #_(set! (state obj :aims-at) target)
             
-            (js/setTimeout #(shoot obj) reaction-time))
-          (when (some->> (first intersects) .-object (enemy-of? obj))
-            (let [target (.-object (first intersects))]
-              (save :crgeroca)
-              (state+ obj :cooldown (+ cooldown (rand-int 100)))
-              
-              (state+ obj :aims-at target)
-              
-              (js/setTimeout #(shoot obj) reaction-time)))))))
+            (state+ obj :aims-at target)
+            
+            (js/setTimeout #(shoot obj) reaction-time))))))
   
   (when-not (state obj :cooldown)
     (when (and (state obj :aims-at)
@@ -475,39 +486,37 @@
 
 (defn move-to-target
   [obj]
-  (if (state obj :aims-at)
-    (state+ obj :speed 0)
-    (when-let [target-pos (state obj :target)]
-      (let [distance (.distanceTo (.. obj -position) target-pos)
-            dir (THREE/Vector3.)]
-        (state+ obj :aims-at nil)
+  (when-let [target-pos (state obj :target)]
+    (let [distance (.distanceTo (.. obj -position) target-pos)
+          dir (THREE/Vector3.)]
+      (state+ obj :aims-at nil)
+      
+      (save :que-pasta)
+      
+      (-> (.subVectors dir target-pos (.. obj -position))
+          .normalize
+          (.multiplyScalar (get-speed obj)))                
+      
+      (if (< distance snap-distance)
+        (do (.. obj -position (copy target-pos))
+            (state+ obj
+                    :target nil
+                    :speed 0))
+        (do (state+ obj :speed
+                    (if (< distance slowdown-distance)
+                      (min max-speed (max 0 (* distance 0.2)))
+                      (min max-speed (+ (state obj :speed) acc))))
+            (.. obj -position (set (+ (.. obj -position -x) (.-x dir))
+                                   (.. obj -position -y)
+                                   (+ (.. obj -position -z) (.-z dir))))))
+      
+      (when-let [target (state obj :target-ball)]
+        (when-let [l (state target :line)]
+          (scene/remove-obj! l))      
         
-        (save :que-pasta)
-        
-        (-> (.subVectors dir target-pos (.. obj -position))
-            .normalize
-            (.multiplyScalar (get-speed obj)))                
-        
-        (if (< distance snap-distance)
-          (do (.. obj -position (copy target-pos))
-              (state+ obj
-                      :target nil
-                      :speed 0))
-          (do (state+ obj :speed
-                      (if (< distance slowdown-distance)
-                        (min max-speed (max 0 (* distance 0.2)))
-                        (min max-speed (+ (state obj :speed) acc))))
-              (.. obj -position (set (+ (.. obj -position -x) (.-x dir))
-                                     (.. obj -position -y)
-                                     (+ (.. obj -position -z) (.-z dir))))))
-        
-        (when-let [target (state obj :target-ball)]
-          (when-let [l (state target :line)]
-            (.remove gayo-data/scene l))      
-          
-          (state+ target :line
-                  (create-line! (.. obj -position (clone))
-                                (.. target -position (clone)))))))))
+        (state+ target :line
+                (create-line! (.. obj -position (clone))
+                              (.. target -position (clone))))))))
 
 (defn die
   [obj]
@@ -584,8 +593,6 @@
   (set! target-ball (find-named "Target"))
   
   (doseq [c main-chars]
-    (ensure-state! c)
-    
     (when-not (state c :target-ball)
       (state+ c :target-ball (.clone target-ball))
       (set! (.. (state c :target-ball) -material)
@@ -608,6 +615,11 @@
       
       (.add ui (state c :range-ball)))
     
+    (let [hb (find-mesh-name-starts-with c "Hitbox")]
+      (set! (.-visible hb) false)
+      (ensure-state! hb)
+      (state+ hb :parent c)
+      (state+ hb :hitbox true))
     
     (ensure-state! (state c :range-ball))        
     
@@ -633,7 +645,7 @@
     (hook+ c :second-update :show-hit-chance #'show-hit-chance)
     (hook+ c :update :die #'die)
     (hook+ c :update :take-aim #'take-aim)
-    (hook+ c :update :find-target #'find-target-in-ball)
+    ;;(hook+ c :update :find-target #'find-target-in-ball)
     (hook+ c :update :reduce-cd #'reduce-cd)
     (hook+ c :update :reduce-stagger #'reduce-stagger))
   
@@ -655,7 +667,7 @@
     (hook+ enemy :update :show-status #'show-status)
     
     (state+ enemy :speed 0)
-    (state+ enemy :max-hp 15)
+    (state+ enemy :max-hp 3000)
     (state+ enemy :hp (state enemy :max-hp))
     (state+ enemy :damage 0.5)
     
@@ -729,7 +741,7 @@
             (state+ b3 :offset 2)))
   
   
-
+  
   )
 
 (comment
@@ -742,6 +754,19 @@
   
   )
 
+(def camera-down-pos (THREE/Vector3.))
+(def floor-down-pos (THREE/Vector3.))
+(def x-scroll-speed 8)
+(def y-scroll-speed -5)
+
+(defn point-on-floor
+  [point camera]
+  (.setFromCamera raycaster point camera)
+  (let [intersects (.intersectObjects raycaster (.-children gayo-data/scene) true)]
+    (when-not (first (buttons intersects))
+      (when-let [hit-floor (first (filter #(= (.-object %) floor) intersects))]
+        (.-point hit-floor)))))
+
 (defn update!
   [_ camera _]
   (ms/debug (first main-chars) {:func #'update!})
@@ -751,39 +776,73 @@
   
   (def camera camera)
   
-  (.. camera -rotation)
+  (when is-down
+    (if-let [c (and #_ selected (first (filter #(state % :drag) main-chars)))]
+      (do (.setFromCamera raycaster curr-pos camera)
+          (let [intersects (.intersectObjects raycaster (.-children gayo-data/scene) true)]
+            (set! hitted intersects)
+            (when-not (seq (buttons intersects))
+              (when-let [hit-floor (first (filter #(= (.-object %) floor) hitted))]
+                (let [tb (state c :target-ball)
+                      ;;target (state+ c :target (.clone (.-point hit-floor)))
+                      ]
+                  
+                  (.. tb -position (copy (.-point hit-floor)))
+                  
+                  (when-let [l (state tb :line)]
+                    (scene/remove-obj! l))      
+                  
+                  (state+ tb :line
+                          (create-line! (.. c -position (clone))
+                                        (.. tb -position (clone))))))))) 
+      (let [diff (THREE/Vector2.)
+            {:keys [x y z]} (bean camera-down-pos)
+            _ (.subVectors diff down-pos curr-pos)
+            new-pos1 (.clone (two->three down-pos
+                                         camera 
+                                         (.distanceTo (.-position camera)
+                                                      (point-on-floor curr-pos camera))))
+            new-pos2 (two->three curr-pos
+                                 camera 
+                                 (.distanceTo (.-position camera)
+                                              (point-on-floor curr-pos camera)))]
+        
+        (.sub new-pos1 new-pos2)        
+        
+        (.. camera -rotation (set -0.9827 0 0))
+        (.. camera -position
+            (set
+                                        ;(+ x (.-x diff)) y (+ z (.-z diff))
+             (+ x (.-x new-pos1))
+             20
+             (+ z (.-z new-pos1))
+             ))
+        
+        #_    (.. camera (lookAt (.-position selected)))
+        )))
   
-  (when-let [c (and is-down #_ selected (first (filter #(state % :drag) main-chars)))]
-    (.setFromCamera raycaster curr-pos camera)
-    (let [intersects (.intersectObjects raycaster (.-children gayo-data/scene) true)]
-      (set! hitted intersects)
-      (when-not (seq (buttons intersects))
-        (when-let [hit-floor (first (filter #(= (.-object %) floor) hitted))]
-          (let [tb (state c :target-ball)
-                target (state+ c :target (.clone (.-point hit-floor)))]
-            (.. tb -position (copy target))
-            
-            (when-let [l (state tb :line)]
-              (.remove gayo-data/scene l))      
-            
-            (state+ tb :line
-                    (create-line! (.. c -position (clone))
-                                  (.. tb -position (clone)))))))))
+  #_(.. camera -rotation)
   
   
+  #_(when-let [cam-target selected #_ (first (filter #(> (.. % -state -hp) 0) main-chars))]
+      (.. camera -position (set                          (+ (.. cam-target -position -x) 0)
+                                                         30
+                                                         (+ (.. cam-target -position -z) 20)))
+      
+      (.. camera (lookAt (.-position cam-target))))
   
-  (when-let [cam-target selected #_ (first (filter #(> (.. % -state -hp) 0) main-chars))]
-    (.. camera -position (set                          (+ (.. cam-target -position -x) 0)
-                                                       30
-                                                       (+ (.. cam-target -position -z) 20)))
-    
-    (.. camera (lookAt (.-position cam-target))))
+  )
+
+(comment
+  hitted
   
+  (bean (.-object (first (filter #(not (.-state (.-object %))) hitted))))
   )
 
 (defn start
   [point scene camera]
   
+  (.. camera-down-pos (copy (.-position camera)))
   (set! is-moving false)
   (set! is-moving-far false)
   (set! is-moving-super-far false)
@@ -797,16 +856,44 @@
     (state+ c :drag false))
   
   (.setFromCamera raycaster point camera)
-  (let [intersects (.intersectObjects raycaster (.-children gayo-data/scene) true)]
+  (let [intersects (.intersectObjects raycaster 
+                                      (into-array
+                                       (filter #(and (not= ui %))
+                                               (.-children gayo-data/scene)))
+                                      true)]
     (set! hitted intersects)
     (when-not (seq (buttons hitted))
-      (let [to-move (if-let [hit-main-char (first (filter #((into #{} main-chars) (.-object %)) hitted))]
-                      (.-object hit-main-char)
-                      selected)]
-        (.. (state to-move :target-ball)
-            -position (copy (.-position to-move)))
-        (state+ to-move :drag true)
-        (state+ to-move :aims-at nil))))
+      (let [main-chars-set (into #{} main-chars)
+            _ (save :tnhseoahs)
+            hit-main-chars
+            (->> intersects
+                 (filter #(main-chars-set (or (state (.-object %) :parent)
+                                              (.-object %)))))]
+        (save :croe12)
+        (if-let [to-move (case (count hit-main-chars)
+                           0 nil
+                           1 (first hit-main-chars)
+                           (->> hit-main-chars
+                                (sort-by #(if (main-chars-set (.-object %))
+                                            -10
+                                            (.distanceTo (.-position
+                                                          (or (state (.-object %) :parent)
+                                                              (.-object %)))
+                                                         (.-point %))))
+                                first))]
+          (do (save :cgreo)
+              (let [to-move (or (state (.-object to-move) :parent) (.-object to-move))]
+                (save :croe)
+                (.. (state to-move :target-ball)
+                    -position (copy (.-position to-move)))
+                (state+ to-move :drag true)
+                (set! selected to-move)
+                (state+ to-move :aims-at nil)))
+          
+          ;; hit floor?
+          (when-let [floor (first (filter #(= (.-object %) floor) hitted))]
+            (.copy floor-down-pos (.-point floor))))
+        )))
   
   (update! scene camera 0))
 
@@ -832,7 +919,9 @@
   [point scene camera]
   (log! "release")
   
-  (when-not (first (filter #(state % :drag) main-chars))
+  (if-let [c (first (filter #(state % :drag) main-chars))]
+    (when-let [p (point-on-floor point camera)]
+      (state+ c :target p))
     (do (.setFromCamera raycaster curr-pos camera)
         (let [intersects (.intersectObjects raycaster (.-children gayo-data/scene) true)]
           (set! hitted intersects)
@@ -840,10 +929,10 @@
           (if-let [hit-button (first (buttons intersects))]
             ((.. hit-button -object -state -clicked) point)
             
-            (when-let [hit-floor (first (filter #(= (.-object %) floor) hitted))]
-              (save :eouantsh)
-              (state+ selected :speed 0)
-              (state+ selected :target (.clone (.-point hit-floor))))))))
+            #_(when-let [hit-floor (first (filter #(= (.-object %) floor) hitted))]
+                (save :eouantsh)
+                (state+ selected :speed 0)
+                (state+ selected :target (.clone (.-point hit-floor))))))))
   
   (hooks/run-hooks! :release)
   (hooks/run-hooks! :click)

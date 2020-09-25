@@ -77,6 +77,7 @@
                               t
                               gayo-data/max-ani
                               opts)]
+               (ensure-state! text-mesh)
                (when-let [old-tm (.. mesh -state -text)]
                  (.remove mesh old-tm))
                (set! (.. mesh -state -text) text-mesh)

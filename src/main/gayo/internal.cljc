@@ -66,6 +66,10 @@
 
 (defn mouse-move
   [ev]
+  
+  (.preventDefault ev)
+  (.stopPropagation ev)
+  
   (when down
     (let [x (- #?(:browser  (.. ev -pageX)
                   :rn (.. ev -nativeEvent -pageX))
@@ -81,6 +85,12 @@
 
 (defn mouse-down
   [ev]
+
+  (println "mouse start")
+  
+  (.preventDefault ev)
+  (.stopPropagation ev)  
+  
   (set! down true)
   
   (save :hutneso)
@@ -103,6 +113,9 @@
 
 (defn mouse-up
   [ev]
+  (.preventDefault ev)
+  (.stopPropagation ev)  
+  
   (set! down false)
   (let [x (- #?(:browser  (.. ev -pageX)
                 :rn (.. ev -nativeEvent -pageX))
@@ -142,33 +155,71 @@
 
 (defn touch-start
   [ev]
+  
+  (println "touch start")
+  
+  (.preventDefault ev)
+  (.stopPropagation ev)
+  
   (set! down true)
-  (let [x (- (.. ev -nativeEvent -pageX) (.-x gayo-data/dims))
-        y (- (.. ev -nativeEvent -pageY) (.-y gayo-data/dims))
+  
+  #_(let [x (- #?(:browser  (.. ev -pageX)
+                  :rn (.. ev -nativeEvent -pageX))
+               (.-x gayo-data/dims))  
+          y (- #?(:browser  (.. ev -pageY)
+                  :rn (.. ev -nativeEvent -pageY))
+               (.-y gayo-data/dims))
+          w (.-z gayo-data/dims)
+          h (.-w gayo-data/dims)]
+      
+      
+      (set! (.-x point) (* 2 (- (/ x w) 0.5)))
+      (set! (.-y point) (* 2 (- (- 1 (/ y h)) 0.5)))
+      
+      (println point))
+  
+  (let [x (- #?(:browser  (.. (aget (.. ev -touches) 0) -pageX)
+                :rn (.. ev -nativeEvent -pageX)) (.-x gayo-data/dims))
+        y (- #?(:browser  (.. (aget (.. ev -touches) 0) -pageY)
+                :rn (.. ev -nativeEvent -pageY)) (.-y gayo-data/dims))
         w (.-z gayo-data/dims)
         h (.-w gayo-data/dims)]
     (set! (.-x point) (* 2 (- (/ x w) 0.5)))
     (set! (.-y point) (* 2 (- (- 1 (/ y h)) 0.5))))
-
+  
   (gayo-data/start point gayo-data/scene (.-camera gayo-data/view)))
 
 (defn touch-move
   [ev]
+  
+  (.preventDefault ev)  
+  (.stopPropagation ev)  
+  
   (when down
-    (let [x (- (.. ev -nativeEvent -pageX) (.-x gayo-data/dims))
-          y (- (.. ev -nativeEvent -pageY) (.-y gayo-data/dims))
+    (let [x (- #?(:browser (.. (aget (.. ev -touches) 0) -pageX)
+                  :rn (.. ev -nativeEvent -pageX)) (.-x gayo-data/dims))
+          y (- #?(:browser  (.. (aget (.. ev -touches) 0) -pageY)
+                  :rn (.. ev -nativeEvent -pageY)) (.-y gayo-data/dims))
           w (.-z gayo-data/dims)
           h (.-w gayo-data/dims)]
       (set! (.-x point) (* 2 (- (/ x w) 0.5)))
       (set! (.-y point) (* 2 (- (- 1 (/ y h)) 0.5))))
-
+    
     (gayo-data/move point gayo-data/scene (.-camera gayo-data/view))))
 
 (defn touch-release
   [ev]
+  
+  (.preventDefault ev)  
+  (.stopPropagation ev)
+  
+  (save :htneaoshnsteoa)
+  
   (set! down false)
-  (let [x (- (.. ev -nativeEvent -pageX) (.-x gayo-data/dims))
-        y (- (.. ev -nativeEvent -pageY) (.-y gayo-data/dims))
+  (let [x (- #?(:browser (.. (aget (.. ev -changedTouches) 0) -pageX)
+                :rn (.. ev -nativeEvent -pageX)) (.-x gayo-data/dims))
+        y (- #?(:browser (.. (aget (.. ev -changedTouches) 0) -pageY)
+                :rn (.. ev -nativeEvent -pageY)) (.-y gayo-data/dims))
         w (.-z gayo-data/dims)
         h (.-w gayo-data/dims)]
     (set! (.-x point) (* 2 (- (/ x w) 0.5)))
@@ -339,7 +390,10 @@
                                    :onWheel #(mouse-wheel %)
                                    :onMouseMove #(mouse-move %)
                                    :onMouseDown #(mouse-down %)
-                                   :onMouseUp #(mouse-up %)}]
+                                   :onMouseUp #(mouse-up %)
+                                   :onTouchMove #(touch-move %)
+                                   :onTouchStart #(touch-start %)
+                                   :onTouchEnd #(touch-release %)}]
                       (aset app (str/lower-case (name k)) v)))))
     
     (set! gayo-data/composer

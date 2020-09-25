@@ -1,5 +1,6 @@
 (ns gayo.scene
-  (:require [gayo.state :as state]
+  (:require [clojure.string :as str]
+            [gayo.state :as state]
             [gayo.hooks :as hooks]
             [gayo.log :refer [log!]]
             [miracle.save :refer-macros [save save-do]]))
@@ -33,6 +34,10 @@
   [scene name]
   (first (find-mesh scene #(= (.. % -userData -name) name))))
 
+(defn find-mesh-name-starts-with
+  [scene name]
+  (first (find-mesh scene #(str/starts-with? (.. % -userData -name) name))))
+
 (defn find-meshes-by-data
   [scene pred]
   (find-mesh scene #(pred (.. % -userData))))
@@ -58,6 +63,8 @@
 
 (defn handle-attributes!
   [obj]
+  (state/ensure-state! obj)
+  
   (when (.. obj -userData -transparent)
     (log! "TRANSPARENT")
     (set! (.. obj -material -transparent) true)
