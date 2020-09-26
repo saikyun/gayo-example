@@ -7,9 +7,9 @@
 
 (defn debug
   [o k v form-meta]
-  (when (and (#{} k)
+  (when (and (#{:cant-aim} k)
              (not= (get @(.-state o) k) v))
-    (println k v form-meta)))
+    (println "setting" k v form-meta)))
 
 (defn clojurize
   [s]

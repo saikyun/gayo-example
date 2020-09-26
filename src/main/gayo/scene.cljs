@@ -89,3 +89,14 @@
   (when (.. obj -userData -foldable)
     (set! (.. obj -originalPosition) (.. obj -position (clone)))
     (.. obj -geometry computeBoundingBox)))
+
+(comment
+  (->> (let [stuff (transient [])]
+         (.traverse gayo.data/scene
+                    (fn [v] (when-not (.-state v)
+                              (conj! stuff v))))
+         (persistent! stuff))
+       (map cljs-bean.core/bean))
+  
+  (persistent! (conj!  (transient []) :a))
+  )
