@@ -2,7 +2,9 @@
   (:require [clojure.string :as str]))
 
 (def watched-o nil)
+(def last-ten-order nil)
 (defn debug [])
+(defn debug-reg [])
 
 (defn camel-case
   [s]

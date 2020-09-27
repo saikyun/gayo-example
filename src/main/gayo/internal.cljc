@@ -42,9 +42,25 @@
 
 (def down false)
 
+(defn key-down
+  [ev]
+  #_(println (.-key ev))
+  
+  (case (.-key ev)
+    "p" (h/pause-timer! 500)
+    " " (set! h/paused (not h/paused))
+    :unhandled-key)
+  
+  
+  ;;      (boat.game/try-shoot boat.game/main-char :k)
+  )
+
 (defn deal-with
   [loaded-gltf conf-k init-f]
   (set! gayo-data/loading true)
+  
+  
+  (.addEventListener js/window "keydown" #(key-down %))
   
   (println "dealing...")
   
@@ -128,14 +144,6 @@
     (set! (.-x point) (* 2 (- (/ x w) 0.5)))
     (set! (.-y point) (* 2 (- (- 1 (/ y h)) 0.5)))
     (gayo-data/release point gayo-data/scene (.-camera gayo-data/view))))
-
-(defn key-down
-  [ev]
-  (println ev)
-  ;;      (boat.game/try-shoot boat.game/main-char :k)
-  )
-
-;;(.addEventListener js/window "keydown" key-down)
 
 (defn mouse-wheel
   [ev]

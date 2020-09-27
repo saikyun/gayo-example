@@ -33,6 +33,14 @@
             [cljs-bean.core :refer [bean ->clj]])
   (:require-macros [miracle.save :refer [save save-do]]))
 
+(defn set-name!
+  [o n]
+  (set! (.. o -userData -name) n))
+
+(defn get-name
+  [o]
+  (.. o -userData -name))
+
 (defn clickables
   [os]
   (filter #(some-> % .-object .-state .-clicked) os))
@@ -217,10 +225,13 @@
         (tw/shake-pos! (.-position obj) (THREE/Vector3. 0 0.1 0) #js {:duration 100}))
     
     (do (update-state! obj :hp - amount)
-        (update-state! obj :stagger + (* 1000 amount))
-        (update-state! obj :hitstun + (* 200 amount))
-        (.lookAt obj dealer)
-        (anim/play-animation! obj "Got Hit")
+        (update-state! obj :stagger #(+ (or % 0) (* 1000 amount 0.1)))
+        (update-state! obj :hitstun #(+ (or % 0) (* 200 amount)))
+        (when-not (state obj :aims-at)
+          (if-let [p (.-position dealer)]
+            (.lookAt obj p)
+            (println "tried to look at nil, dealer:" dealer)))
+        (anim/play-animation! (state obj :model) "Got Hit")
         #_(tw/shake-pos! (.-position obj) (THREE/Vector3. 0.1 0 0) #js {:duration 100})))
   
   (when-not (moving? obj)
@@ -228,6 +239,15 @@
   
   (save :nts213)
   #_(macroexpand '(update-state! obj :stagger #(+ (or % 0) (* 1000 amount))))
+  )
+
+(comment
+  
+  (update-state! obj :stagger + )
+  
+  (println (state (find-mesh-by-name gayo-data/scene "Enemy.001")))
+  
+  (.-rotation (find-mesh-by-name gayo-data/scene "Enemy.001"))
   )
 
 (defn alive?
@@ -260,7 +280,7 @@
      (if (state o :hitstun)
        0
        1)
-
+     
      #_(if (state o :aims-at) 0.5 1)))
 
 (comment
@@ -430,23 +450,38 @@
     (set! (.. hit-chance-o -position -y)
           (+ (.. hit-chance-o -position -y) 1.8))))
 
+(def debug-target nil)
+
+
+
 (defn aim
   [shooter from-pos target-dir]
   (let [raycaster (or (state shooter :raycaster) 
                       (state+ shooter :raycaster (THREE/Raycaster.)))]
     (set! (.. raycaster -far) (+ (state shooter :range) adjust-distance))
-    (.set raycaster from-pos target-dir)                    
-    (->> (.intersectObjects raycaster (into-array
-                                       (filter #(and (not= ui %)
-                                                     (not= shooter
-                                                           (or (state % :parent)
-                                                               %)))
-                                               (.-children gayo-data/scene)))
-                            true)
-         (filter #(some? (.-face %)))
-         (map #(do (when-let [p (state (.-object %) :parent)]
-                     (set! (.-object %) p))
-                   %)))))
+    (.set raycaster from-pos target-dir)
+    (let [res (->> (.intersectObjects raycaster (into-array
+                                                 (filter
+                                                  #(and (not= ui %)
+                                                        (not= shooter
+                                                              (or (state % :parent)
+                                                                  %)))
+                                                  (.-children gayo-data/scene)))
+                                      true)
+                   (filter #(some? (.-face %)))
+                   (filter #(not= shooter
+                                  (or (state (.-object %) :parent)
+                                      (.-object %))))
+                   (map #(do (when-let [p (state (.-object %) :parent)]
+                               (set! (.-object %) p))
+                             %)))]
+      
+      #_(when (= debug-target "Enemy.001")
+          (println "hehe")
+          (save :tnhsaeo)
+          )
+      
+      res)))
 
 (defn shoot
   [shooter]
@@ -482,23 +517,43 @@
                                 (state target :shield))]
                 (tw/shake-pos! (.-position s) (THREE/Vector3. 0.05 0.05 0) #js {:duration 100}))))
           (do (println shooter "lost target..." (state shooter :aims-at))
+              (when (state shooter :npc)
+                (state+ shooter :target (state shooter :aims-at-last-pos)))
               (state+ shooter :aims-at nil)))))))
 
 (defn try-shoot
   [obj]
   
+  #_(when (= obj selected)
+      (state+ obj :wat (rand 5))
+      (hooks/pause-timer! 500))
+  
   (doseq [enemy (sort-by #(.distanceTo (.-position obj)
                                        (.-position %))
                          (filter alive? (enemies-of obj)))
           :when (not (state obj :cooldown))]
+    
     (let [dir (THREE/Vector3.)
           target-pos (.clone (.-position enemy))
           from-pos (.clone (.-position obj))
           _ (set! (.. target-pos -y) (+ 0.4 (.. target-pos -y)))
           _ (set! (.. from-pos -y) (+ 0.4 (.. from-pos -y)))
           target-dir (.normalize (.subVectors dir target-pos from-pos))]
+      
+      #_(when (and (= obj selected) (= (get-name enemy) "Enemy.001"))
+          (println "lul")
+          (let [l (create-line! from-pos
+                                target-pos)]
+            
+            (println (some-> (first (aim obj from-pos target-dir)) .-object))
+            
+            (set! debug-target "Enemy.001")
+            
+            (js/setTimeout #(scene/remove-obj! l) 500)))      
+      
+
+      
       (when-let [target (some-> (first (aim obj from-pos target-dir)) .-object)]
-        #_(create-line! from-pos target-pos)
         (if (some->> (state obj :aims-at) (alive?))
           (try
             (let [distance (.distanceTo from-pos (.. target -position))]
@@ -512,6 +567,7 @@
                                    (.-position obj))
                                   .normalize
                                   (.multiplyScalar adjust-distance))]
+                      (save :uehntsoa)
                       (state+ obj :target (.. obj -position (clone) (add dir)))))))
             (catch js/Error e
               (save :wtf2)
@@ -523,8 +579,13 @@
             (state+ obj :cooldown (+ cooldown (rand-int 100)))
             
             (state+ obj :aims-at target)
+            (state+ obj :aims-at-last-pos (.clone (.-position target)))
             
-            (js/setTimeout #(shoot obj) reaction-time))))))
+            (js/setTimeout #(shoot obj) reaction-time))))
+      
+      
+      (set! debug-target nil)
+      ))
   
   (when-not (state obj :cooldown)
     (when (and (state obj :aims-at)
@@ -616,7 +677,7 @@
                                              true)
                                             (filter #(some? (.-face %)))))]
                   (when (some->> (first intersects) .-object (enemy-of? obj))
-                    {:pos target-pos
+                    {:pos (.-position enemy)
                      :enemy enemy
                      :distance (.distanceTo target-pos tb-pos)
                      :dist-chars (.distanceTo target-pos from-pos)}))))
@@ -624,7 +685,7 @@
           potential-targets (filter some? potential-targets)]
       (if-let [{:keys [pos distance dist-chars enemy]} (first (sort-by :distance potential-targets))]
         (when (< distance 1)
-          (state+ obj :target pos))))))
+          (state+ obj :target (.clone pos)))))))
 
 (defn reduce-cd
   [obj _ {:keys [dt] :as data}]
@@ -642,10 +703,22 @@
 
 (defn reduce-hitstun
   [obj _ {:keys [dt] :as data}]
-  (when-let [cd (state obj :hitstun)]
-    (state+ obj :hitstun (- cd dt))
+  (when-let [hs (state obj :hitstun)]
+    (state+ obj :hitstun (- hs dt))
     (when (<= (state obj :hitstun) 0)
       (state+ obj :hitstun nil))))
+
+(defn validate-obj!
+  [o]
+  (when (or (js/isNaN (.. o -rotation -x))
+            (js/isNaN (.. o -position -x)))
+    (save :tnhaeo)
+    ;;(set! hooks/paused true)
+    (throw (js/Error. "FFS gaem"))))
+
+(comment
+  (.. obj -position (set 0 0 0))
+  )
 
 (defn move-to-target
   [obj]
@@ -671,7 +744,12 @@
                       (min max-speed (+ (state obj :speed) acc))))
             (.. obj -position (set (+ (.. obj -position -x) (.-x dir))
                                    (.. obj -position -y)
-                                   (+ (.. obj -position -z) (.-z dir))))))
+                                   (+ (.. obj -position -z) (.-z dir))))
+            #_(try (validate-obj! obj)
+                   (catch js/Error e
+                     (println "in move-to-target")
+                     (save :tnhsaoe)
+                     (throw e)))))
       
       (when-let [target (state obj :target-ball)]
         (when-let [l (state target :line)]
@@ -767,7 +845,7 @@
               (.. tb -position (copy (.-point hit-floor)))
               
               (when-let [l (state tb :line)]
-                (scene/remove-obj! l))      
+                (scene/remove-obj! l))
               
               (state+ tb :line
                       (create-line! (.. obj -position (clone))
@@ -816,7 +894,41 @@
   [o]
   (when-let [t (or (some-> (state o :aims-at) .-position)
                    (state o :target))]
-    (.lookAt o t)))
+    (.lookAt o t)
+    #_(when (js/isNaN (.. o -rotation -x))
+        (save :tnhaeo)
+        ;;(set! hooks/paused true)
+        (throw "FFS look"))))
+
+(comment
+  (.. o -rotation (set 0 0 0))
+  (.-position o)
+  (.lookAt o (THREE/Vector3. 0 0 0))
+  
+  (.. o -rotation)
+  
+  (map (fn [o]
+         [(.-position o)
+          (map #(.-position %) (.-children o))]) main-chars)
+  
+  (map (fn [o] (.-position o)) main-chars)
+  
+  )
+
+(defn add-animation-root
+  [o]
+  (if-not (find-mesh-name-starts-with o "Animation Root")
+    (let [r (THREE/Object3D.)]
+      (ensure-state! r)
+      (state+ r :parent o)
+      (.. r -position (copy (.-position o)))
+      (.add (.-parent o) r)
+      (.add r o)
+      (.. o -position (set 0 0 0))
+      (set-name! r (get-name o))
+      (set-name! o "Animation Root")
+      r)
+    o))
 
 (defn reset-chars!
   []
@@ -824,7 +936,11 @@
                     (find-named "Yellow")
                     (find-named "Blue")])
   
+  (set! main-chars (vec (map add-animation-root main-chars)))
+  
   (set! enemies (find-mesh gayo-data/scene #(some-> (.. % -userData -name) (str/starts-with? "Enemy"))))
+  
+  (set! enemies (vec (map add-animation-root enemies)))
   
   (set! floor (find-named "Plane"))
   (set! target-ball (find-named "Target"))
@@ -902,6 +1018,7 @@
   (state+ (first main-chars) :hit-chance-bonus 2)
   (state+ (first main-chars) :damage 3)
   (state+ (second main-chars) :range far-range)
+  
   (state+ (get main-chars 2) :range far-range)
   
   (set! selected (first main-chars))
@@ -909,6 +1026,13 @@
   (doseq [enemy enemies]
     (ensure-state! enemy)
     (state+ enemy :cant-aim nil)
+
+    (state+ enemy :npc true)
+    
+    (state+ enemy :model (or (find-mesh-name-starts-with enemy "Animation Root")
+                             enemy))
+    
+    (state+ (state enemy :model) :parent enemy)
     
     (add-shield enemy)
     
@@ -926,6 +1050,8 @@
     (give-hp-bar enemy)
     
     (hook+ enemy :second-update :show-hit-chance #'show-hit-chance)
+    (hook+ enemy :second-update :look-at-target-or-aim #'fix-look)
+    
     (hook+ enemy :update :move-to-target #'move-to-target)
     (hook+ enemy :update :find-target #'find-target)
     (hook+ enemy :update :die #'die)
@@ -1091,6 +1217,9 @@
 
 (defn update!
   [_ camera _]
+  
+  (set! hooks/debug-o (find-mesh-by-name gayo-data/scene "Enemy.001"))
+  
   (ms/debug selected {:func #'update!})
   
   (when-not selected

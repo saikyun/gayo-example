@@ -76,21 +76,78 @@
   ([kind hook-name]
    (hook- global-hooks-obj kind hook-name)))
 
+(def paused false)
+
+(defonce debug-o nil)
+
+(def queued-hooks {})
+(def queued-data {})
+
+(defn pause-timer!
+  [n]
+  (set! paused true)
+  (js/setTimeout #(set! paused false) n))
+
+(comment
+  (doseq [h (get @all-hooks kind)]
+    (try
+      (if data
+        (run h data)
+        (run h))
+      (catch js/Error e
+        (save :hook-error)
+        #_(hook- h)
+        (throw e)))
+    (when (some-> h :opts :once)
+      (hook- h))
+    
+    (when paused
+      
+      ))
+  )
+
+(defn validate-obj!
+  [o]
+  (when (or (js/isNaN (.. o -rotation -x))
+            (js/isNaN (.. o -position -x)))
+    (save :tnhaeo)
+    ;;(set! hooks/paused true)
+    (throw (js/Error. "FFS hook"))))
+
 (defn run-hooks!
   ([kind]
    (run-hooks! kind nil))
   ([kind data]
-   (doseq [h (get @all-hooks kind)]
-     (try
-       (if data
-         (run h data)
-         (run h))
-       (catch js/Error e
-         (save :hook-error)
-         #_(hook- h)
-         (throw e)))
-     (when (some-> h :opts :once)
-       (hook- h)))))
+   (when-not paused
+     (let [data
+           (if-let [qd (queued-data kind)]
+             (do (set! queued-data (dissoc queued-data kind))
+                 qd)
+             data)]
+       (loop [[h & hs] (if-let [qh (queued-hooks kind)]
+                         (do (set! queued-hooks (dissoc queued-hooks kind))
+                             qh)
+                         (get @all-hooks kind))]
+         (when h
+           (try
+             (if data
+               (run h data)
+               (run h))
+             (when-let [o debug-o]
+               (validate-obj! o))
+             (catch js/Error e
+               (println "Error in hook:" h)
+               (set! paused true)
+               (save :hook-error)
+               #_(hook- h)
+               (throw e)))
+           (when (some-> h :opts :once)
+             (hook- h))
+           
+           (if paused
+             (do (set! queued-hooks (assoc queued-hooks kind hs))
+                 (set! queued-data  (assoc queued-data  kind data)))
+             (recur hs))))))))
 
 (defn run-hooks-js!
   [kind]

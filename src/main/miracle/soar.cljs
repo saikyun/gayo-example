@@ -136,10 +136,11 @@
                           :width "300px"
                           :grid-template-columns "repeat(2, fit-content(20%))"
                           :grid-gap "10px"}}]
-           (for [[k v] @(.-state o)]
-             [:<>
-              [:div (pr-str k)]
-              [input k v]])))])
+           (let [s @(.-state o)]
+             (for [[k v] (map #(vector % (get s %)) state/last-ten-order)]
+               [:<>
+                [:div (pr-str k)]
+                [input k v]]))))])
 
 (defn render
   []
