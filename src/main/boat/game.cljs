@@ -6,6 +6,7 @@
             
             [miracle.soar :as ms]
             
+            [gayo.animation :as anim]
             [gayo.text :refer [set-text!]]
             
             [gayo.sprite :refer [sprite!]]
@@ -72,6 +73,7 @@
 (defonce target-ball (find-named "Target"))
 (defonce throwable-projectile nil)
 (defonce explosion nil)
+(defonce shield nil)
 (defonce blue-explosion nil)
 
 (def dragging nil)
@@ -138,7 +140,7 @@
   (doseq [c (concat enemies main-chars)]
     (when (or (not (state o :damaged)) (not ((state o :damaged) c)))
       (when (< (.distanceTo (.-position o) (.-position c)) (state o :range))
-        (damage c (state o :damage))
+        (damage c (state o :damage) o)
         (update-state! o :damaged #(into #{} (conj % c)))))))
 
 (defn explode!
@@ -206,7 +208,7 @@
                (hooks/hook- obj :update :revenge-timer))))))
 
 (defn damage
-  [obj amount]
+  [obj amount dealer]
   (if (state obj :revenge)
     (do (println "revenge!"
                  (update-state! obj :revenge-damage + (* 0.5 amount)))
@@ -215,8 +217,11 @@
         (tw/shake-pos! (.-position obj) (THREE/Vector3. 0 0.1 0) #js {:duration 100}))
     
     (do (update-state! obj :hp - amount)
-        (update-state! obj :stagger #(+ (or % 0) (* 1000 amount)))
-        (tw/shake-pos! (.-position obj) (THREE/Vector3. 0.1 0 0) #js {:duration 100})))
+        (update-state! obj :stagger + (* 1000 amount))
+        (update-state! obj :hitstun + (* 200 amount))
+        (.lookAt obj dealer)
+        (anim/play-animation! obj "Got Hit")
+        #_(tw/shake-pos! (.-position obj) (THREE/Vector3. 0.1 0 0) #js {:duration 100})))
   
   (when-not (moving? obj)
     (find-target obj))
@@ -236,7 +241,7 @@
 
 (defn attack
   [attacker defender]
-  (damage defender (state attacker :damage)))
+  (damage defender (state attacker :damage) attacker))
 
 (defn hit-chance
   [attacker defender]
@@ -250,10 +255,17 @@
      (if (state o :stagger)
        (max 0.1 (- 1 (/ (state o :stagger) 1000)))
        1)
+     1
+     
+     (if (state o :hitstun)
+       0
+       1)
 
      #_(if (state o :aims-at) 0.5 1)))
 
 (comment
+  #_(.lookAt (first main-chars) (THREE/Vector3. -30 0 1))
+  
   (set-text!
    (first main-chars)
    "0.25"
@@ -267,6 +279,7 @@
 (defn update-hp
   [obj]
   (save :crheoa)
+  (state obj)
   (let [hp-bar (state obj :hp-bar)
         max-hp-bar (state obj :max-hp-bar)
         tp (.. (state hp-bar :target) -position)
@@ -425,10 +438,15 @@
     (.set raycaster from-pos target-dir)                    
     (->> (.intersectObjects raycaster (into-array
                                        (filter #(and (not= ui %)
-                                                     (not= shooter %))
+                                                     (not= shooter
+                                                           (or (state % :parent)
+                                                               %)))
                                                (.-children gayo-data/scene)))
                             true)
-         (filter #(some? (.-face %))))))
+         (filter #(some? (.-face %)))
+         (map #(do (when-let [p (state (.-object %) :parent)]
+                     (set! (.-object %) p))
+                   %)))))
 
 (defn shoot
   [shooter]
@@ -458,13 +476,17 @@
         (if (some->> (first intersects) .-object (enemy-of? shooter))
           (let [n (rand)
                 hc (hit-chance shooter target)]
-            (when (< n hc)
-              (attack shooter target)))
+            (if (< n hc)
+              (attack shooter target)
+              (when-let [s (and (= (state target :aims-at) shooter)
+                                (state target :shield))]
+                (tw/shake-pos! (.-position s) (THREE/Vector3. 0.05 0.05 0) #js {:duration 100}))))
           (do (println shooter "lost target..." (state shooter :aims-at))
               (state+ shooter :aims-at nil)))))))
 
 (defn try-shoot
   [obj]
+  
   (doseq [enemy (sort-by #(.distanceTo (.-position obj)
                                        (.-position %))
                          (filter alive? (enemies-of obj)))
@@ -475,22 +497,27 @@
           _ (set! (.. target-pos -y) (+ 0.4 (.. target-pos -y)))
           _ (set! (.. from-pos -y) (+ 0.4 (.. from-pos -y)))
           target-dir (.normalize (.subVectors dir target-pos from-pos))]
-      
       (when-let [target (some-> (first (aim obj from-pos target-dir)) .-object)]
         #_(create-line! from-pos target-pos)
         (if (some->> (state obj :aims-at) (alive?))
-          (let [distance (.distanceTo from-pos (.. target -position))]
-            (if (<= distance (state obj :range))
-              (do (state+ obj :cooldown (+ cooldown (rand-int 100)))
-                  (js/setTimeout #(shoot obj) reaction-time))
-              (do (state+ obj :cooldown 1)
-                  (let [dir (-> (.subVectors
-                                 (THREE/Vector3.)
-                                 (.-position target)
-                                 (.-position obj))
-                                .normalize
-                                (.multiplyScalar adjust-distance))]
-                    (state+ obj :target (.. obj -position (clone) (add dir)))))))
+          (try
+            (let [distance (.distanceTo from-pos (.. target -position))]
+              (if (<= distance (state obj :range))
+                (do (state+ obj :cooldown (+ cooldown (rand-int 100)))
+                    (js/setTimeout #(shoot obj) reaction-time))
+                (do (state+ obj :cooldown 1)
+                    (let [dir (-> (.subVectors
+                                   (THREE/Vector3.)
+                                   (.-position target)
+                                   (.-position obj))
+                                  .normalize
+                                  (.multiplyScalar adjust-distance))]
+                      (state+ obj :target (.. obj -position (clone) (add dir)))))))
+            (catch js/Error e
+              (save :wtf2)
+              (throw e))
+            
+            )
           (when (some->> target (enemy-of? obj))
             (save :crgeroca)
             (state+ obj :cooldown (+ cooldown (rand-int 100)))
@@ -613,6 +640,13 @@
     (when (<= (state obj :stagger) 0)
       (state+ obj :stagger nil))))
 
+(defn reduce-hitstun
+  [obj _ {:keys [dt] :as data}]
+  (when-let [cd (state obj :hitstun)]
+    (state+ obj :hitstun (- cd dt))
+    (when (<= (state obj :hitstun) 0)
+      (state+ obj :hitstun nil))))
+
 (defn move-to-target
   [obj]
   (when-let [target-pos (state obj :target)]
@@ -690,7 +724,7 @@
     (when-let [t (state obj :target)]
       (.. tb -position (copy t)))
     (set! (.. tb -material -map)
-          (.. obj -material -map))))
+          (.. (state obj :model) -material -map))))
 
 (defn refresh-range-ball
   [obj]
@@ -713,7 +747,7 @@
     (.. tb -position (copy (.. obj -position)))
     
     (set! (.. tb -material -map)
-          (.. obj -material -map))))
+          (.. (state obj :model) -material -map))))
 
 (defn drag-target
   [obj pos]
@@ -763,6 +797,27 @@
   (set! (.. (state c :target-ball) -material -opacity)
         0.5))
 
+(defn clone!
+  [o]
+  (let [n (.clone o)]
+    (ensure-state! n)
+    n))
+
+(defn add-shield
+  [o]
+  (let [s (or (state o :shield) (clone! shield))]
+    (save :Tnsaohe)
+    (state+ o :shield s)
+    (.add o s)
+    (.. s -position (set 0 0.4 0.3))
+    (state+ s :parent o)))
+
+(defn fix-look
+  [o]
+  (when-let [t (or (some-> (state o :aims-at) .-position)
+                   (state o :target))]
+    (.lookAt o t)))
+
 (defn reset-chars!
   []
   (set! main-chars [(find-named "Pink")
@@ -775,6 +830,8 @@
   (set! target-ball (find-named "Target"))
   (set! throwable-projectile (find-named "Throwable Projectile"))
   
+  (set! shield (find-named "Shield"))
+  
   (set! explosion (find-named "Explosion"))
   (set! (.. explosion -material -transparent) true)
   (set! (.. explosion -material -opacity) 0.4)
@@ -783,8 +840,15 @@
   (set! (.. blue-explosion -material -transparent) true)
   (set! (.. blue-explosion -material -opacity) 0.4)
   
-
   (doseq [c main-chars]
+    (state+ c :model (or (find-mesh-name-starts-with c "Animation Root")
+                         c))    
+    
+    (add-shield c)
+    
+    (ensure-state! (state c :model))
+    (state+ (state c :model) :parent c)
+    
     (state+ c :cant-aim nil)
     (state+ c :drag #'drag-target)    
     (state+ c :drag-release #'set-target)    
@@ -822,6 +886,7 @@
     (give-hp-bar c)
     
     (hook+ c :update        :move-to-target #'move-to-target)
+    (hook+ c :second-update :look-at-target-or-aim #'fix-look)
     (hook+ c :second-update :show-status #'show-status)
     (hook+ c :second-update :refresh-target-ball #'refresh-target-ball)
     (hook+ c :second-update :refresh-range-ball  #'refresh-range-ball)
@@ -830,7 +895,8 @@
     (hook+ c :update :take-aim #'take-aim)
     ;;(hook+ c :update :find-target #'find-target-in-ball)
     (hook+ c :update :reduce-cd #'reduce-cd)
-    (hook+ c :update :reduce-stagger #'reduce-stagger))
+    (hook+ c :update :reduce-stagger #'reduce-stagger)
+    (hook+ c :update :reduce-hitstun #'reduce-hitstun))
   
   (state+ (first main-chars) :range close-range)
   (state+ (first main-chars) :hit-chance-bonus 2)
@@ -843,6 +909,8 @@
   (doseq [enemy enemies]
     (ensure-state! enemy)
     (state+ enemy :cant-aim nil)
+    
+    (add-shield enemy)
     
     (state+ enemy :range far-range)
     
@@ -863,13 +931,17 @@
     (hook+ enemy :update :die #'die)
     (hook+ enemy :update :take-aim #'take-aim)
     (hook+ enemy :update :reduce-cd #'reduce-cd)
-    (hook+ enemy :update :reduce-stagger #'reduce-stagger)))
+    (hook+ enemy :update :reduce-stagger #'reduce-stagger)
+    (hook+ enemy :update :reduce-hitstun #'reduce-hitstun)))
 
 (comment
-  
-  (reset-chars!)
-  
+  (.-position (second (.-children (first main-chars))))
   )
+
+(when ms/debugging
+  (reset-chars!))
+
+
 
 (defn drag-skill
   [obj pos]
@@ -939,7 +1011,7 @@
     (p/then (add-button! #'select)
             (fn [b]
               (println "adding button")
-              (set! (.. b -material -map) (.. c -material -map))
+              (set! (.. b -material -map) (.. (state c :model) -material -map))
               (state+ b :character c)
               (state+ c :button b)
               (state+ b :offset offset)
@@ -948,7 +1020,7 @@
   (p/then (add-button! nil)
           (fn [b]
             (set! (.-name b) "Left Skill")
-            (set! (.. b -material -map) (.. (get main-chars 0) -material -map))
+            (set! (.. b -material -map) (.. (state (get main-chars 0) :model) -material -map))
             (state+ b :offset -1.5)
             (state+ b :offset-y 1.5)
             
@@ -962,7 +1034,7 @@
   (p/then (add-button! #(revenge! selected))
           (fn [b]
             (set! (.-name b) "Middle Skill")
-            (set! (.. b -material -map) (.. (get main-chars 1) -material -map))
+            (set! (.. b -material -map) (.. (state (get main-chars 1) :model) -material -map))
             (state+ b :offset 0)
             (state+ b :offset-y 1.5)
             
@@ -973,7 +1045,7 @@
   (p/then (add-button! nil)
           (fn [b]
             (set! (.-name b) "Right Skill")
-            (set! (.. b -material -map) (.. (get main-chars 2) -material -map))
+            (set! (.. b -material -map) (.. (state (get main-chars 2) :model) -material -map))
             (state+ b :offset 1.5)
             (state+ b :offset-y 1.5)
             
@@ -1019,7 +1091,7 @@
 
 (defn update!
   [_ camera _]
-  (ms/debug (first main-chars) {:func #'update!})
+  (ms/debug selected {:func #'update!})
   
   (when-not selected
     (select (first (filter alive? main-chars))))

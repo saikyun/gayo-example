@@ -13,14 +13,19 @@
 
 (defn clojurize
   [s]
-  (-> (str/replace (name s) #".[A-Z]" (fn [[a v]] (str a "-" v)))
-      str/lower-case
+  (-> (str/replace (name s) #".[A-Z]" (fn [[a v]] (str a "-" (str/lower-case v))))
       keyword)
   )
+
+(defn js-ize
+  [s]
+  (str/replace (name s) #"-[A-Za-z]" (fn [[a v]] (str/upper-case v))))
 
 (comment
   (clojurize "aB")
   (clojurize "JaBaDa")
+  
+  (js-ize (clojurize "JaBaDa"))
   
   (str/replace "JaBa" #".[A-Z]" (fn [[a v]]
                                   (println a v)
@@ -30,6 +35,13 @@
 (defn watch
   [o]
   (when-not (identical? o watched-o)
+    (when watched-o
+      (let [new-state (into {} (map 
+                                (fn [[k v]] [(js-ize k) v])
+                                @(.. watched-o -state)))
+            new-state (clj->js new-state)]
+        (set! (.. watched-o -state) new-state)))
+    
     (let [new-state (js->clj (.. o -state))
           new-state (into {} (map 
                               (fn [[k v]] [(clojurize k) v])
