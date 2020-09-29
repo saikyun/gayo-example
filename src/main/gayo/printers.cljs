@@ -46,7 +46,7 @@
   IPrintWithWriter
   (-pr-writer [a writer opts]
     (-write writer "#Vector2[")
-    (-write writer (str (.-x a) " " (.-y a)))
+    (-write writer (gstring/format "%.2f %.2f" (.-x a) (.-y a)))
     (-write writer "]")))
 
 (extend-type THREE/Vector4

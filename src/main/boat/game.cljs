@@ -4,6 +4,8 @@
             ["three" :as THREE]  
             [promesa.core :as p]
             
+            [gayo.collision :refer [poly-circle circle-circle]]
+            
             [miracle.soar :as ms]
             
             [gayo.animation :as anim]
@@ -13,7 +15,7 @@
             [gayo.assets :as assets]
             
             [gayo.log :refer [log!]]            
-            [gayo.data :as gayo-data]
+            [gayo.data :as gayo-data :refer [ui]]
             [gayo.state :refer [ensure-state! update-state! state+ state]] 
             [gayo.hooks :as hooks :refer [hook+]]
             [gayo.scene :as scene
@@ -53,6 +55,7 @@
 (def down-pos (THREE/Vector2.))
 (def curr-pos (THREE/Vector2.))
 (def down-time nil)
+(def coll-thingy nil)
 (defonce point3d (THREE/Vector3.))
 (defonce pos (THREE/Vector3.))
 
@@ -69,9 +72,6 @@
   [name]
   (when-let [scene gayo-data/scene]
     (find-mesh-by-name scene name)))
-
-(defonce ui (THREE/Object3D.))
-(ensure-state! ui)
 
 (defonce main-chars [])
 
@@ -265,7 +265,9 @@
 
 (defn hit-chance
   [attacker defender]
-  (* (if (aims-at? defender attacker) 0.25 1)
+  (* (if (and (aims-at? defender attacker)
+              (state defender :shield))
+       0.25 1)
      (or (state attacker :hit-chance-bonus) 1)
      base-hit-chance))
 
@@ -425,6 +427,31 @@
     (set! (.. status-o -position -z)
           (- (.. status-o -position -z) 0.5))))
 
+(defn show-mission-status
+  [o]
+  (let [nof-enemies 5
+        nof-dead (- 5 (count enemies))
+        t (set-text!
+           o
+           (cond (= nof-dead nof-enemies)
+                 "God bless."
+                 (empty? main-chars) "Pity."
+                 :else
+                 (str "Purge the area: "
+                      nof-dead
+                      "/" nof-enemies))
+           #js {:scale 4
+                :color 0xffffff
+                :maxWidth nil})]
+    (.. o -position (copy (.. gayo-data/view -camera -position)))
+    
+    (set! (.. o -rotation -x) 0.45)
+    
+    #_(set! (.. o -position -x) 0)
+    (set! (.. o -position -y) 5)
+    (set! (.. o -position -z)
+          (- (.. o -position -z) 13))))
+
 (defn show-hit-chance
   [o]
   (when-not (state o :hit-chance)
@@ -452,7 +479,25 @@
 
 (def debug-target nil)
 
+(defn convert-children-to-parents
+  [hits]
+  (map #(do (when-let [p (state (.-object %) :parent)]
+              (set! (.-object %) p))
+            %)
+       hits))
 
+(defn set-target-toward
+  [obj pos]
+  (let [dir (-> (.subVectors
+                 (THREE/Vector3.)
+                 pos
+                 (.-position obj))
+                .normalize
+                (.multiplyScalar adjust-distance))]
+    #_(when (= "Enemy.004" (get-name obj))
+        (println obj)
+        )
+    (state+ obj :target (.. obj -position (clone) (add dir)))))
 
 (defn aim
   [shooter from-pos target-dir]
@@ -472,9 +517,7 @@
                    (filter #(not= shooter
                                   (or (state (.-object %) :parent)
                                       (.-object %))))
-                   (map #(do (when-let [p (state (.-object %) :parent)]
-                               (set! (.-object %) p))
-                             %)))]
+                   convert-children-to-parents)]
       
       #_(when (= debug-target "Enemy.001")
           (println "hehe")
@@ -482,6 +525,7 @@
           )
       
       res)))
+
 
 (defn shoot
   [shooter]
@@ -551,29 +595,60 @@
             
             (js/setTimeout #(scene/remove-obj! l) 500)))      
       
-
+      (when (and (= enemy (find-mesh-by-name gayo-data/scene "Pink"))
+                 (state obj :aims-at))
+        (save :htnsaoeaaa)
+        
+        (comment
+          (let [shooter obj
+                raycaster (or (state shooter :raycaster) 
+                              (state+ shooter :raycaster (THREE/Raycaster.)))]
+            (set! (.. raycaster -far) (+ (state shooter :range) adjust-distance))
+            (.set raycaster from-pos target-dir)
+            (let [res (->> (.intersectObjects raycaster (into-array
+                                                         (filter
+                                                          #(and (not= ui %)
+                                                                (not= shooter
+                                                                      (or (state % :parent)
+                                                                          %)))
+                                                          (.-children gayo-data/scene)))
+                                              true)
+                           #_(filter #(some? (.-face %)))
+                           #_(filter #(not= shooter
+                                            (or (state (.-object %) :parent)
+                                                (.-object %))))
+                           convert-children-to-parents)]
+              
+              #_(when (= debug-target "Enemy.001")
+                  (println "hehe")
+                  (save :tnhsaeo)
+                  )
+              
+              res))
+          )
+        
+        )
       
       (when-let [target (some-> (first (aim obj from-pos target-dir)) .-object)]
         (if (some->> (state obj :aims-at) (alive?))
-          (try
-            (let [distance (.distanceTo from-pos (.. target -position))]
-              (if (<= distance (state obj :range))
-                (do (state+ obj :cooldown (+ cooldown (rand-int 100)))
-                    (js/setTimeout #(shoot obj) reaction-time))
-                (do (state+ obj :cooldown 1)
-                    (let [dir (-> (.subVectors
-                                   (THREE/Vector3.)
-                                   (.-position target)
-                                   (.-position obj))
-                                  .normalize
-                                  (.multiplyScalar adjust-distance))]
-                      (save :uehntsoa)
-                      (state+ obj :target (.. obj -position (clone) (add dir)))))))
-            (catch js/Error e
-              (save :wtf2)
-              (throw e))
-            
-            )
+          (try (let [distance (.distanceTo from-pos (.. target -position))]
+                 (if (<= distance (state obj :range))
+                   (do (state+ obj :cooldown (+ cooldown (rand-int 100)))
+                       (js/setTimeout #(shoot obj) reaction-time))
+                   (do (state+ obj :cooldown 1)
+                       (let [dir (-> (.subVectors
+                                      (THREE/Vector3.)
+                                      (.-position target)
+                                      (.-position obj))
+                                     .normalize
+                                     (.multiplyScalar adjust-distance))]
+                         (save :uehntsoa)
+                         (state+ obj :target (.. obj -position (clone) (add dir)))))))
+               (catch js/Error e
+                 (save :wtf2)
+                 (throw e))
+               
+               )
           (when (some->> target (enemy-of? obj))
             (save :crgeroca)
             (state+ obj :cooldown (+ cooldown (rand-int 100)))
@@ -588,9 +663,13 @@
       ))
   
   (when-not (state obj :cooldown)
-    (when (and (state obj :aims-at)
+    (cond (and (state obj :aims-at)
                (not (alive? (state obj :aims-at))))
-      (state+ obj :aims-at nil))
+          (state+ obj :aims-at nil)
+          
+          (state obj :aims-at) (set-target-toward obj (.-position (state obj :aims-at)))
+          
+          )
     (state+ obj :cooldown short-cooldown)))
 
 (defn take-aim
@@ -603,6 +682,7 @@
 
 (defn find-target
   [obj]
+  
   (when-not (some->> (state obj :aims-at) (alive?))
     (let [potential-targets 
           , (for [enemy (filter alive? (enemies-of obj))]
@@ -613,7 +693,7 @@
                     _ (set! (.. from-pos -y) (+ 0.4 (.. from-pos -y)))
                     target-dir (.normalize (.subVectors dir target-pos from-pos))]
                 
-                (.set raycaster from-pos target-dir)                    
+                (.set raycaster from-pos target-dir)
                 (when-let [intersects (seq
                                        (->> (.intersectObjects 
                                              raycaster
@@ -622,25 +702,24 @@
                                                             (not= obj %))
                                                       (.-children gayo-data/scene)))
                                              true)
-                                            (filter #(some? (.-face %)))))]
+                                            (filter #(some? (.-face %)))
+                                            convert-children-to-parents))]
                   #_(create-line! from-pos target-pos)
                   (when (some->> (first intersects) .-object (enemy-of? obj))
                     {:pos (.-position enemy)
                      :distance (.distanceTo target-pos (.-position obj))}))))
           
           potential-targets (filter some? potential-targets)]
-      (if-let [{:keys [pos distance]} (first (sort-by :distance potential-targets))]
-        (do
-          (if (> distance (- (state obj :range) 0.5))
-            (let [dir (-> (.subVectors
-                           (THREE/Vector3.)
-                           pos
-                           (.-position obj))
-                          .normalize
-                          (.multiplyScalar adjust-distance))]
-              (state+ obj :target (.. obj -position (clone) (add dir))))
-            #_(state+ obj :target pos)
-            (state+ obj :target (.. obj -position))))))))
+      
+      (when (= "Enemy.004" (get-name obj))
+        (save :thnsaoe)
+        )
+      
+      (when-let [{:keys [pos distance]} (first (sort-by :distance potential-targets))]
+        (if (> distance (max 0.5 (- (state obj :range) 0.5)))
+          (set-target-toward obj pos)
+          #_(state+ obj :target pos)
+          (state+ obj :target (.. obj -position)))))))
 
 (defn find-target-in-ball
   [obj]
@@ -720,12 +799,42 @@
   (.. obj -position (set 0 0 0))
   )
 
+(def circ-radius 0.2)
+
+(let [p (THREE/Vector2.)]
+  (defn coll-env?
+    [obj]
+    (loop [[o & os] coll-thingy]
+      (cond (not o) false
+            :else (do (.set p (.. obj -position -x)
+                            (.. obj -position -z))
+                      (if-let [coll (poly-circle (state o :hitbox) p 0.25)]
+                        coll
+                        (recur os)))))))
+
+(let [p1 (THREE/Vector2.)
+      p2 (THREE/Vector2.)]
+  (defn coll-character?
+    [obj]
+    (.set p1 (.. obj -position -x)
+          (.. obj -position -z))
+    (let [others (concat enemies main-chars)]
+      (loop [[o & os] others]
+        (cond (not o) false
+              (= o obj) (recur os)
+              :else (do (.set p2 (.. o -position -x)
+                              (.. o -position -z))
+                        (if (circle-circle p1 0.25 p2 0.25)
+                          true
+                          (recur os))))))))
+
 (defn move-to-target
   [obj]
   (when-let [target-pos (state obj :target)]
     (let [distance (.distanceTo (.. obj -position) target-pos)
+          curr-pos (.clone (.-position obj))
           dir (THREE/Vector3.)]
-      (state+ obj :aims-at nil)
+      #_(state+ obj :aims-at nil)
       
       (save :que-pasta)
       
@@ -750,6 +859,27 @@
                      (println "in move-to-target")
                      (save :tnhsaoe)
                      (throw e)))))
+      
+      (let [p (THREE/Vector2.)]
+        (.set p (.. obj -position -x)
+              (.. obj -position -z))
+        (if-let [coll (coll-env? obj)]
+          (do
+            (let [v (.subVectors (THREE/Vector2.) p coll)]
+              (.. obj -position (copy curr-pos))
+              (if (> (.-x v) (.-y v))
+                (set! (.. obj -position -x)
+                      (+ (.. obj -position -x)
+                         (* 0.05 (.-x v))))
+                (set! (.. obj -position -z)
+                      (+ (.. obj -position -z)
+                         (* 0.05 (.-y v))))))
+            (save :thnaoes-env))
+          (if (coll-character? obj)
+            (do (.. obj -position (copy curr-pos))
+                (state+ obj
+                        :target nil
+                        :speed 0)))))
       
       (when-let [target (state obj :target-ball)]
         (when-let [l (state target :line)]
@@ -786,6 +916,7 @@
 
 (def far-range 3)
 (def close-range 1)
+(def melee-range 0.7)
 (def skill-buttons [nil nil nil])
 
 (defn refresh-target-ball
@@ -831,7 +962,7 @@
   [obj pos]
   (.. (state obj :target-ball) -position (copy (.-position obj))) 
   (select-character obj) 
-  (state+ obj :aims-at nil)
+  #_(state+ obj :aims-at nil)
   
   (do (.setFromCamera raycaster pos (.. gayo-data/view -camera))
       (let [intersects (.intersectObjects raycaster (.-children gayo-data/scene) true)]
@@ -930,11 +1061,56 @@
       r)
     o))
 
+(def mission-status nil)
+
+(comment
+  
+  
+  (state coll-thingy :hitbox)
+  
+  
+  )
+
+(defn points->lines
+  [points]
+  (loop [last-p (last points)
+         [p & ps] points
+         acc []]
+    (if-not p
+      acc
+      (recur p ps (conj acc #js {:start last-p
+                                 :end p})))))
+
 (defn reset-chars!
   []
+  (set! coll-thingy (vec (scene/find-meshes-name-starts-with gayo-data/scene "Hitbox")))
+  
+  (doseq [ct coll-thingy]
+    (state+ ct :hitbox
+            (->> (.. ct -geometry (getAttribute "position") -array)
+                 (partition 3) 
+                 (map (fn [[x _ z]]
+                        (THREE/Vector2.
+                         (+ (.. ct -position -x) x)
+                         (+ (.. ct -position -z) z))))
+                 points->lines)))
+  
   (set! main-chars [(find-named "Pink")
-                    (find-named "Yellow")
+                    #_(find-named "Yellow")
                     (find-named "Blue")])
+  
+  #_(let [p (THREE/Vector2.)]
+      (hook+ coll-thingy
+             :update
+             :collides
+             (fn [o]
+               (let [c (first main-chars)]
+                 (.set p (.. c -position -x)
+                       (.. c -position -z))
+                 (save :thnaosehnsoa)
+                 (if (poly-circle (state o :hitbox) p 0.3)
+                   (set! (.. o -material -color) (THREE/Color. 0x00ff00))
+                   (set! (.. o -material -color) (THREE/Color. 0x0000ff)))))))
   
   (set! main-chars (vec (map add-animation-root main-chars)))
   
@@ -960,8 +1136,6 @@
     (state+ c :model (or (find-mesh-name-starts-with c "Animation Root")
                          c))    
     
-    (add-shield c)
-    
     (ensure-state! (state c :model))
     (state+ (state c :model) :parent c)
     
@@ -978,7 +1152,7 @@
       
       (.add ui (state c :range-ball)))
     
-    (let [hb (find-mesh-name-starts-with c "Hitbox")]
+    (let [hb (find-mesh-name-starts-with c "Clickbox")]
       (set! (.-visible hb) false)
       (ensure-state! hb)
       (state+ hb :parent c)
@@ -994,7 +1168,7 @@
     (set! (.-visible c) true)
     
     (state+ c :speed 0)
-    (state+ c :max-hp 30)
+    (state+ c :max-hp 10)
     (state+ c :hp (state c :max-hp))
     
     (state+ c :damage 1)
@@ -1014,19 +1188,27 @@
     (hook+ c :update :reduce-stagger #'reduce-stagger)
     (hook+ c :update :reduce-hitstun #'reduce-hitstun))
   
+  (when-not mission-status
+    (set! mission-status (THREE/Object3D.))
+    (.. mission-status -position (set 0 5 0))
+    (.add ui mission-status)
+    (hook+ mission-status :update show-mission-status #'show-mission-status))
+  
+  (add-shield (first main-chars))
+  
   (state+ (first main-chars) :range close-range)
-  (state+ (first main-chars) :hit-chance-bonus 2)
-  (state+ (first main-chars) :damage 3)
+  (state+ (first main-chars) :hit-chance-bonus 1.3)
+  (state+ (first main-chars) :damage 1)
   (state+ (second main-chars) :range far-range)
   
-  (state+ (get main-chars 2) :range far-range)
+  #_(state+ (get main-chars 2) :range far-range)
   
   (set! selected (first main-chars))
   
   (doseq [enemy enemies]
     (ensure-state! enemy)
     (state+ enemy :cant-aim nil)
-
+    
     (state+ enemy :npc true)
     
     (state+ enemy :model (or (find-mesh-name-starts-with enemy "Animation Root")
@@ -1034,18 +1216,18 @@
     
     (state+ (state enemy :model) :parent enemy)
     
-    (add-shield enemy)
+    #_(add-shield enemy)
     
-    (state+ enemy :range far-range)
+    (state+ enemy :range melee-range)
     
     (set! (.-visible enemy) true)
     
     (hook+ enemy :update :show-status #'show-status)
     
     (state+ enemy :speed 0)
-    (state+ enemy :max-hp 15)
+    (state+ enemy :max-hp 12)
     (state+ enemy :hp (state enemy :max-hp))
-    (state+ enemy :damage 0.5)
+    (state+ enemy :damage 1)
     
     (give-hp-bar enemy)
     
@@ -1102,6 +1284,7 @@
   [scene loaded-gltf conf-k]
   
   (set! ui (THREE/Object3D.))
+  (ensure-state! ui)
   (.add scene ui)
   
   (set! select-box (sprite! nil))
@@ -1143,44 +1326,47 @@
               (state+ b :offset offset)
               (select b))))
   
-  (p/then (add-button! nil)
-          (fn [b]
-            (set! (.-name b) "Left Skill")
-            (set! (.. b -material -map) (.. (state (get main-chars 0) :model) -material -map))
-            (state+ b :offset -1.5)
-            (state+ b :offset-y 1.5)
-            
-            (state+ b :drag #'drag-skill)
-            (state+ b :drag-release #'release-skill)
-            
-            (set! skill-buttons (assoc skill-buttons 0 b))
-            
-            (add-target-ball! b)))
-  
-  (p/then (add-button! #(revenge! selected))
-          (fn [b]
-            (set! (.-name b) "Middle Skill")
-            (set! (.. b -material -map) (.. (state (get main-chars 1) :model) -material -map))
-            (state+ b :offset 0)
-            (state+ b :offset-y 1.5)
-            
-            (set! skill-buttons (assoc skill-buttons 1 b))
-            
-            (add-target-ball! b)))
-  
-  (p/then (add-button! nil)
-          (fn [b]
-            (set! (.-name b) "Right Skill")
-            (set! (.. b -material -map) (.. (state (get main-chars 2) :model) -material -map))
-            (state+ b :offset 1.5)
-            (state+ b :offset-y 1.5)
-            
-            (state+ b :drag #'drag-skill)
-            (state+ b :drag-release #'release-skill)
-            
-            (set! skill-buttons (assoc skill-buttons 2 b))
-            
-            (add-target-ball! b))))
+  (comment
+    ;; skills are overkill atm
+    (p/then (add-button! nil)
+            (fn [b]
+              (set! (.-name b) "Left Skill")
+              (set! (.. b -material -map) (.. (state (get main-chars 0) :model) -material -map))
+              (state+ b :offset -1.5)
+              (state+ b :offset-y 1.5)
+              
+              (state+ b :drag #'drag-skill)
+              (state+ b :drag-release #'release-skill)
+              
+              (set! skill-buttons (assoc skill-buttons 0 b))
+              
+              (add-target-ball! b)))
+    
+    (p/then (add-button! #(revenge! selected))
+            (fn [b]
+              (set! (.-name b) "Middle Skill")
+              (set! (.. b -material -map) (.. (state (get main-chars 1) :model) -material -map))
+              (state+ b :offset 0)
+              (state+ b :offset-y 1.5)
+              
+              (set! skill-buttons (assoc skill-buttons 1 b))
+              
+              (add-target-ball! b)))
+    
+    (when (get main-chars 2)
+      (p/then (add-button! nil)
+              (fn [b]
+                (set! (.-name b) "Right Skill")
+                (set! (.. b -material -map) (.. (state (get main-chars 2) :model) -material -map))
+                (state+ b :offset 1.5)
+                (state+ b :offset-y 1.5)
+                
+                (state+ b :drag #'drag-skill)
+                (state+ b :drag-release #'release-skill)
+                
+                (set! skill-buttons (assoc skill-buttons 2 b))
+                
+                (add-target-ball! b))))))
 
 
 
@@ -1296,7 +1482,8 @@
   
   (.setFromCamera raycaster point camera)
   (let [intersects (.intersectObjects raycaster 
-                                      (.-children gayo-data/scene)
+                                      (into-array 
+                                       (filter #(not= ui %) (.-children gayo-data/scene)))
                                       true)]
     (set! hitted intersects)
     (when-not (seq (clickables hitted))
@@ -1359,6 +1546,11 @@
           
           (if-let [hit-button (first (clickables intersects))]
             ((state (.. hit-button -object) :clicked) (.. hit-button -object) point)
+            
+            (when-let [i (first (filter #(= (.-object %) floor) intersects))]
+              (println (bean i))
+              (.lookAt selected (.-point i)))
+
             
             #_(when-let [hit-floor (first (filter #(= (.-object %) floor) hitted))]
                 (save :eouantsh)

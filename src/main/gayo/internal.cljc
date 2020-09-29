@@ -86,17 +86,20 @@
   (.preventDefault ev)
   (.stopPropagation ev)
   
+  (let [x (- #?(:browser  (.. ev -pageX)
+                :rn (.. ev -nativeEvent -pageX))
+             (.-x gayo-data/dims))   
+        y (- #?(:browser  (.. ev -pageY)
+                :rn (.. ev -nativeEvent -pageY))
+             (.-y gayo-data/dims))
+        w (.-z gayo-data/dims)
+        h (.-w gayo-data/dims)]
+    (set! (.-x point) (* 2 (- (/ x w) 0.5)))
+    (set! (.-y point) (* 2 (- (- 1 (/ y h)) 0.5))))
+  
+  (h/run-hooks! :move point)
+  
   (when down
-    (let [x (- #?(:browser  (.. ev -pageX)
-                  :rn (.. ev -nativeEvent -pageX))
-               (.-x gayo-data/dims))   
-          y (- #?(:browser  (.. ev -pageY)
-                  :rn (.. ev -nativeEvent -pageY))
-               (.-y gayo-data/dims))
-          w (.-z gayo-data/dims)
-          h (.-w gayo-data/dims)]
-      (set! (.-x point) (* 2 (- (/ x w) 0.5)))
-      (set! (.-y point) (* 2 (- (- 1 (/ y h)) 0.5))))
     (gayo-data/move point gayo-data/scene (.-camera gayo-data/view))))
 
 (defn mouse-down

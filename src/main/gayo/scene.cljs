@@ -36,7 +36,11 @@
 
 (defn find-mesh-name-starts-with
   [scene name]
-  (first (find-mesh scene #(str/starts-with? (.. % -userData -name) name))))
+  (first (find-mesh scene #(some-> % .-userData .-name (str/starts-with? name)))))
+
+(defn find-meshes-name-starts-with
+  [scene name]
+  (find-mesh scene #(some-> % .-userData .-name (str/starts-with? name))))
 
 (defn find-meshes-by-data
   [scene pred]
@@ -91,6 +95,12 @@
     (.. obj -geometry computeBoundingBox)))
 
 (comment
+  (.traverse gayo.data/scene
+             (fn [v] (println v)))
+  
+  
+  
+
   (->> (let [stuff (transient [])]
          (.traverse gayo.data/scene
                     (fn [v] (when-not (.-state v)

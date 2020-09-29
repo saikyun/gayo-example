@@ -19,6 +19,7 @@
 
 (defonce glc nil)
 (defonce scene nil)
+(defonce ui nil)
 
 (comment
   (.traverse scene println)

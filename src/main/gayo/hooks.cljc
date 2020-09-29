@@ -16,7 +16,7 @@
   (run [this data]
     (f obj kind data)))
 
-(def global-hooks-obj #js [])
+(defonce global-hooks-obj #js [])
 
 (defn hook+
   ([obj kind hook-name f]

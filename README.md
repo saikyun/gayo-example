@@ -33,6 +33,7 @@ rm -r node_modules/ .shadow-cljs/ targets/expo/node_modules/ targets/expo/.shado
 
 
 
+cd ~/spel/gayo-example
 rm -r targets/browser/public/assets
 rm -r targets/browser/public/js
 cp -r assets targets/browser/public/
