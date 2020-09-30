@@ -35,6 +35,131 @@
             [cljs-bean.core :refer [bean ->clj]])
   (:require-macros [miracle.save :refer [save save-do]]))
 
+(defn get-material
+  [params]
+  (let [sphereRadius 2
+        diffuse
+        (if-not (.-diffuse params) 0xffffff (.-diffuse params))
+        diffuseBack
+        (if-not (.-diffuseBack params)
+          diffuse
+          (.-diffuseBack params))
+        inside (if-not (.-inside params)
+                 true
+                 (.-inside params))
+        inside (if inside 1 (- 1))
+        _ (save :huh)
+        lambert (new
+                 THREE/ShaderMaterial
+                 #js                
+                 {:uniforms
+                  (.merge THREE/UniformsUtils
+                          #js [(.. THREE -ShaderLib -lambert -uniforms)
+                               #js {:clippingSphere #js {:value (new THREE/Vector4)},
+                                    :clippingSphere1 #js {:value (new THREE/Vector4)},
+                                    :clippingSphere2 #js {:value (new THREE/Vector4)},
+                                    :diffuseBack #js {:value (new THREE/Color 0x00ff00)}}]),
+                  :vertexShader
+                  (.replace
+                   (.replace
+                    (.. THREE -ShaderLib -lambert -vertexShader)
+                    #"varying vec3 vLightFront;"
+                    "varying vec3 vLightFront;\nvarying vec4 worldPosition;")
+                   #"#include <worldpos_vertex>"
+                   "worldPosition = modelMatrix * vec4( transformed, 1.0 );")
+                  :fragmentShader
+                  (->
+                   ((.. THREE -ShaderLib -lambert -fragmentShader -replace)
+                    #"uniform float opacity;"
+                    "uniform float opacity;
+uniform vec4 clippingSphere;
+uniform vec4 clippingSphere1;
+uniform vec4 clippingSphere2;
+uniform vec3 diffuseBack;")
+                   (.replace
+                    #"varying vec3 vLightFront;"
+                    "varying vec3 vLightFront;\nvarying vec4 worldPosition;")
+                   (.replace
+                    #"#include <clipping_planes_fragment>"
+                    "#include <clipping_planes_fragment>
+if (distance(worldPosition.xz, clippingSphere.xz) * sign(clippingSphere.w) < clippingSphere.w
+||
+distance(worldPosition.xz, clippingSphere1.xz) * sign(clippingSphere1.w) < clippingSphere1.w
+//||
+//distance(worldPosition.xz, clippingSphere2.xz) * sign(clippingSphere2.w) < clippingSphere2.w
+) discard;
+")
+                   (.replace
+                    #"#include <dithering_fragment>"
+                    "#include <dithering_fragment>\n if (!gl_FrontFacing) gl_FragColor.xyz = diffuseBack;")),
+                  :lights true,
+                  :side THREE/DoubleSide,
+                  :flatShading false})]
+    (save :lam)
+    (.set
+     (.. lambert -uniforms -clippingSphere -value)
+     0 0
+     0 (* sphereRadius inside))
+    (.set
+     (.. lambert -uniforms -clippingSphere1 -value)
+     0 0
+     0 (* sphereRadius inside))
+    (.set
+     (.. lambert -uniforms -clippingSphere2 -value)
+     0 0
+     0 (* sphereRadius inside))
+    (.set (.. lambert -uniforms -diffuse -value) diffuse)
+    (.set (.. lambert -uniforms -diffuseBack -value) diffuseBack)
+    lambert))
+
+(def geometry (new THREE/PlaneGeometry 100 100 32))
+
+(def material
+  (new
+   THREE/MeshBasicMaterial
+   #js {:color 0xffff00, :side (.-DoubleSide THREE)}))
+
+(def material2 (get-material #js {:diffuse 0x111111}))
+
+(defonce plane (new THREE/Mesh geometry material))
+
+(set! (.-material plane) material2)
+(set! (.-geometry plane) geometry)
+(set! (.. plane -material -color) (THREE/Color. 0x00ff00))
+(set! (.. plane -material -uniforms -opacity -value) 0.5)
+(set! (.. plane -material -transparent) true)
+(set! (.. plane -material -needsUpdate) true)
+(set! (.. plane -material -uniforms -needsUpdate) true)
+
+(.. plane -rotation (set (* 0.5 (.-PI js/Math)) 0 0))
+(.. plane -position (set 0 3 0))
+
+(ensure-state! plane)
+
+(def geometry2 (new THREE/PlaneGeometry 100 100 32))
+
+(def material3
+  (new
+   THREE/MeshBasicMaterial
+   #js {:color 0xffff00, :side (.-DoubleSide THREE)}))
+
+(def material4 (get-material #js {:diffuse 0x111111}))
+
+(defonce plane2 (new THREE/Mesh geometry2 material2))
+
+(set! (.-material plane2) material4)
+(set! (.-geometry plane2) geometry2)
+(set! (.. plane2 -material -color) (THREE/Color. 0x00ff00))
+(set! (.. plane2 -material -uniforms -opacity -value) 0.5)
+(set! (.. plane2 -material -transparent) true)
+(set! (.. plane2 -material -needsUpdate) true)
+(set! (.. plane2 -material -uniforms -needsUpdate) true)
+
+(.. plane2 -rotation (set (* 0.5 (.-PI js/Math)) 0 0))
+(.. plane2 -position (set 0 3.2 0))
+
+(ensure-state! plane2)
+
 (defn set-name!
   [o n]
   (set! (.. o -userData -name) n))
@@ -408,7 +533,7 @@
     (state+ o :status (THREE/Object3D.))
     (.add gayo-data/scene (state o :status)))
   
-  (let [status (get-status o)
+  (let [status "" #_ (get-status o)
         status-o (state o :status)
         t (set-text!
            status-o
@@ -462,9 +587,9 @@
   (let [hit-chance-o (state o :hit-chance)
         t (set-text!
            hit-chance-o
-           (if-let [a (state o :aims-at)]
-             (str (* 100 (hit-chance o a)) "")
-             "")
+           "" #_(if-let [a (state o :aims-at)]
+                  (str (* 100 (hit-chance o a)) "")
+                  "")
            #js {:scale 4
                 :color 0xffffff
                 :maxWidth nil})]
@@ -937,26 +1062,26 @@
 
 (defn refresh-range-ball
   [obj]
-  (let [tb (state obj :range-ball)
-        range (* 3 (state obj :range))]
-    
-    (if (state obj :revenge)
-      (.. tb -scale (set (* 2 (state obj :revenge-damage))
-                         1
-                         (* 2 (state obj :revenge-damage))))
-      (.. tb -scale (set range 1 range)))
-    
-    (set! (.. tb -material -opacity)
-          (if (state obj :dragging)
-            0.5
-            (if (= selected obj)
-              0.3
-              0.0)))
-    
-    (.. tb -position (copy (.. obj -position)))
-    
-    (set! (.. tb -material -map)
-          (.. (state obj :model) -material -map))))
+  #_(let [tb (state obj :range-ball)
+          range (* 3 (state obj :range))]
+      
+      (if (state obj :revenge)
+        (.. tb -scale (set (* 2 (state obj :revenge-damage))
+                           1
+                           (* 2 (state obj :revenge-damage))))
+        (.. tb -scale (set range 1 range)))
+      
+      (set! (.. tb -material -opacity)
+            (if (state obj :dragging)
+              0.5
+              (if (= selected obj)
+                0.3
+                0.0)))
+      
+      (.. tb -position (copy (.. obj -position)))
+      
+      (set! (.. tb -material -map)
+            (.. (state obj :model) -material -map))))
 
 (defn drag-target
   [obj pos]
@@ -1003,6 +1128,8 @@
   (set! (.. (state c :target-ball) -material -depthTest) true)
   (set! (.. (state c :target-ball) -material -transparent) true)
   
+  (save :htnsaoehsnao)
+  
   (set! (.. (state c :target-ball) -material -opacity)
         0.5))
 
@@ -1023,9 +1150,47 @@
 
 (defn fix-look
   [o]
+  (when (= o (second main-chars))
+    (.. plane -material -uniforms -clippingSphere -value (copy (.-position o)))
+    (set! (.. plane -material -uniforms -clippingSphere -value -z)
+          (+ 1.8 (.. plane -material -uniforms -clippingSphere -value -z)))
+    (set! (.. plane -material -uniforms -clippingSphere -value -w) 2)
+    
+    (.. plane2 -material -uniforms -clippingSphere -value (copy (.-position o)))
+    (set! (.. plane2 -material -uniforms -clippingSphere -value -w) 3)
+    (set! (.. plane2 -material -uniforms -clippingSphere -value -z)
+          (+ 1.8 (.. plane2 -material -uniforms -clippingSphere -value -z)))
+    
+    )
+  
+  (when (= o (first main-chars))
+    (.. plane -material -uniforms -clippingSphere1 -value (copy (.-position o)))
+    (set! (.. plane -material -uniforms -clippingSphere1 -value -z)
+          (+ 1.8 (.. plane -material -uniforms -clippingSphere1 -value -z)))
+    (set! (.. plane -material -uniforms -clippingSphere1 -value -w) 2)
+    
+    (.. plane2 -material -uniforms -clippingSphere1 -value (copy (.-position o)))
+    (set! (.. plane2 -material -uniforms -clippingSphere1 -value -w) 3)
+    (set! (.. plane2 -material -uniforms -clippingSphere1 -value -z)
+          (+ 1.8 (.. plane2 -material -uniforms -clippingSphere1 -value -z)))
+    
+    )
+  
+  (when (= o (get main-chars 2))
+    (.. plane -material -uniforms -clippingSphere2 -value (copy (.-position o)))
+    (set! (.. plane -material -uniforms -clippingSphere2 -value -z)
+          (+ 1 (.. plane -material -uniforms -clippingSphere2 -value -z)))
+
+    )
+
   (when-let [t (or (some-> (state o :aims-at) .-position)
                    (state o :target))]
     (.lookAt o t)
+    
+    #_(when-let [sl (state o :spotlight)]
+        (save :nthsaoe)
+        (.. sl -target -position (subVectors t (.-position o)) (normalize) (add (.-position o))))
+    
     #_(when (js/isNaN (.. o -rotation -x))
         (save :tnhaeo)
         ;;(set! hooks/paused true)
@@ -1138,6 +1303,22 @@
     
     (ensure-state! (state c :model))
     (state+ (state c :model) :parent c)
+
+    
+    #_(let [sl (state+ c :spotlight (or (state c :spotlight)
+                                        (THREE/SpotLight. 0xffffff)))]
+        (ensure-state! sl)
+        (ensure-state! (.-target sl))      
+
+        (.add c sl)
+        (.add gayo-data/scene (.-target sl))
+        (set! (.-angle sl) 0.5)
+        (save :tnhsaoe)
+
+        (set! (.-intensity sl) 4)
+        (set! (.-penumbra sl) 0.1)
+        (set! (.-castShadow sl) true)
+        )
     
     (state+ c :cant-aim nil)
     (state+ c :drag #'drag-target)    
@@ -1287,6 +1468,9 @@
   (ensure-state! ui)
   (.add scene ui)
   
+  (.add ui plane)
+  (.add ui plane2)
+  
   (set! select-box (sprite! nil))
   
   (.add ui select-box)
@@ -1309,7 +1493,7 @@
   (let [light (THREE/AmbientLight. 0xffffff)]
     (ensure-state! light)
     (save :add-light1)
-    (set! (.. light -intensity) 2)
+    (set! (.. light -intensity) 1)
     (.add scene light))
   
   (reset-chars!)
