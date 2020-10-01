@@ -17,7 +17,7 @@
             [gayo.log :refer [log!]]            
             [gayo.data :as gayo-data :refer [ui]]
             [gayo.state :refer [ensure-state! update-state! state+ state]] 
-            [gayo.hooks :as hooks :refer [hook+]]
+            [gayo.hooks :as hooks :refer [hook+ hook-]]
             [gayo.scene :as scene
              :refer [find-mesh
                      find-mesh-by-name
@@ -32,6 +32,7 @@
             
             [miracle.save] 
             
+            [clojure.pprint :refer [pprint]]
             [cljs-bean.core :refer [bean ->clj]])
   (:require-macros [miracle.save :refer [save save-do]]))
 
@@ -112,53 +113,55 @@ distance(worldPosition.xz, clippingSphere1.xz) * sign(clippingSphere1.w) < clipp
     (.set (.. lambert -uniforms -diffuseBack -value) diffuseBack)
     lambert))
 
-(def geometry (new THREE/PlaneGeometry 100 100 32))
+(defn shadow-plane!
+  []
+  (let [geometry (THREE/PlaneBufferGeometry. 100 100 32)
+        material (get-material #js {:diffuse 0x111111})
+        plane (THREE/Mesh. geometry material)]
+    (ensure-state! plane)
+    plane))
 
-(def material
-  (new
-   THREE/MeshBasicMaterial
-   #js {:color 0xffff00, :side (.-DoubleSide THREE)}))
+(defn plane!
+  [{:keys [size]}]
+  (let [geometry (THREE/PlaneBufferGeometry. (get size 0) (get size 1) (get size 2))
+        material (THREE/MeshStandardMaterial.)
+        plane (THREE/Mesh. geometry material)]
+    (ensure-state! plane)
+    plane))
 
-(def material2 (get-material #js {:diffuse 0x111111}))
+(defonce plane nil)
+(defonce plane2 nil)
 
-(defonce plane (new THREE/Mesh geometry material))
+(defn init-shadow-planes
+  []
+  (when-not plane
+    (set! plane (shadow-plane!)))
+  
+  (set! (.. plane -material -uniforms -opacity -value) 0.5)
+  (set! (.. plane -material -transparent) true)
+  (set! (.. plane -material -needsUpdate) true)
+  (set! (.. plane -material -uniforms -needsUpdate) true)
+  
+  (.. plane -rotation (set (* 0.5 (.-PI js/Math)) 0 0))
+  (.. plane -position (set 0 3 0))
+  
+  (.add ui plane)
+  
+  
+  (when-not plane2
+    (set! plane2 (shadow-plane!)))
+  
+  (set! (.. plane2 -material -uniforms -opacity -value) 0.5)
+  (set! (.. plane2 -material -transparent) true)
+  (set! (.. plane2 -material -needsUpdate) true)
+  (set! (.. plane2 -material -uniforms -needsUpdate) true)
+  
+  (.. plane2 -rotation (set (* 0.5 (.-PI js/Math)) 0 0))
+  (.. plane2 -position (set 0 3.2 0))
+  
+  (ensure-state! plane2)
 
-(set! (.-material plane) material2)
-(set! (.-geometry plane) geometry)
-(set! (.. plane -material -color) (THREE/Color. 0x00ff00))
-(set! (.. plane -material -uniforms -opacity -value) 0.5)
-(set! (.. plane -material -transparent) true)
-(set! (.. plane -material -needsUpdate) true)
-(set! (.. plane -material -uniforms -needsUpdate) true)
-
-(.. plane -rotation (set (* 0.5 (.-PI js/Math)) 0 0))
-(.. plane -position (set 0 3 0))
-
-(ensure-state! plane)
-
-(def geometry2 (new THREE/PlaneGeometry 100 100 32))
-
-(def material3
-  (new
-   THREE/MeshBasicMaterial
-   #js {:color 0xffff00, :side (.-DoubleSide THREE)}))
-
-(def material4 (get-material #js {:diffuse 0x111111}))
-
-(defonce plane2 (new THREE/Mesh geometry2 material2))
-
-(set! (.-material plane2) material4)
-(set! (.-geometry plane2) geometry2)
-(set! (.. plane2 -material -color) (THREE/Color. 0x00ff00))
-(set! (.. plane2 -material -uniforms -opacity -value) 0.5)
-(set! (.. plane2 -material -transparent) true)
-(set! (.. plane2 -material -needsUpdate) true)
-(set! (.. plane2 -material -uniforms -needsUpdate) true)
-
-(.. plane2 -rotation (set (* 0.5 (.-PI js/Math)) 0 0))
-(.. plane2 -position (set 0 3.2 0))
-
-(ensure-state! plane2)
+  (.add ui plane2))
 
 (defn set-name!
   [o n]
@@ -209,7 +212,162 @@ distance(worldPosition.xz, clippingSphere1.xz) * sign(clippingSphere1.w) < clipp
 (defonce shield nil)
 (defonce blue-explosion nil)
 
+(defonce sniper-button nil)
+
 (def dragging nil)
+
+(defonce aim-plane (plane! [1 1 1]))
+
+(defn sniper-aim
+  []
+  (set! (.-visible aim-plane) true)
+  (.add ui aim-plane)
+  (println "setting stuff")
+  (let [pos (let [c (second main-chars)
+                  dir (THREE/Vector3.) 
+                  target-pos (.clone (.-position (state sniper-button :target-ball))) 
+                  from-pos (.clone (.-position c))
+                  _ (set! (.. target-pos -y) (+ 0.4 (.. target-pos -y))) 
+                  _ (set! (.. from-pos -y) (+ 0.4 (.. from-pos -y))) 
+                  target-dir (.normalize (.subVectors dir target-pos from-pos))]
+              (.set raycaster
+                    from-pos
+                    target-dir)
+              (let [intersects
+                    (.intersectObjects raycaster (into-array
+                                                  #(not= ui %)
+                                                  (.-children gayo-data/scene)) true)]
+                (when-let [hit-thing (first (filter #(and (.-face %)
+                                                          (not= 
+                                                           (or
+                                                            (state (.-object %) :parent)
+                                                            (.-object %)) c)
+                                                          (not (state (.-object %) :range)))
+                                                    intersects))]
+                  (.-point hit-thing))))]
+    (let [ps (.. aim-plane -geometry -attributes -position -array)
+          x 0
+          y 1
+          z 2
+          y-pos 0.2
+          
+          sp  (.-position (second main-chars))
+          ep  pos
+          
+          start (THREE/Vector2. (.-x sp) (.-z sp))
+          end   (THREE/Vector2. (.-x ep) (.-z ep))
+          angle (.angle (.subVectors (THREE/Vector2.) start end))
+          _ (save :lul2)
+          x-mod (* 0.5 (js/Math.sin angle))
+          z-mod (* 0.5 (- (js/Math.cos angle)))]
+      
+      
+      ;; 1 3
+      (.. (state sniper-button :target-ball) -position -x)
+      
+      
+      (aset ps (+ (* 0 3) x) (- (.-x end) x-mod))
+      (aset ps (+ (* 0 3) y) y-pos)            
+      (aset ps (+ (* 0 3) z) (- (.-y end) z-mod))            
+      
+      (aset ps (+ (* 1 3) x) (+ (.-x end) x-mod))
+      (aset ps (+ (* 1 3) y) y-pos)
+      (aset ps (+ (* 1 3) z) (+ (.-y end) z-mod))
+      
+      (aset ps (+ (* 2 3) x) (- (.-x start) x-mod))
+      (aset ps (+ (* 2 3) y) y-pos)      
+      (aset ps (+ (* 2 3) z) (- (.-y start) z-mod))      
+      
+      (aset ps (+ (* 3 3) x) (+ (.-x start) x-mod))      
+      (aset ps (+ (* 3 3) y) y-pos)      
+      (aset ps (+ (* 3 3) z) (+ (.-y start) z-mod))      
+      
+      (set! (.. aim-plane -geometry -attributes -position -needsUpdate) true))))
+
+(comment
+  (.add ui aim-plane)
+  
+  (let [ps (.. aim-plane -geometry -attributes -position -array)] 
+    (partition 3 ps))   
+  
+  (set! (.. aim-plane -material -transparent) true)
+  (set! (.. aim-plane -material -opacity) 0.5)
+  (set! (.. aim-plane -material -map) (.. (state (get main-chars 1) :model) -material -map))
+  (set! (.. aim-plane -material -needsUpdate) true)
+  
+  
+  (0 (-0.5  0.5 0) 1 (0.5  0.5 0)
+     2 (-0.5 -0.5 0) 3 (0.5 -0.5 0))
+  
+  (.. (second main-chars) -position -x)  
+  
+  
+  
+  (do
+    (let [pos (let [c (second main-chars)
+                    dir (THREE/Vector3.) 
+                    target-pos (.clone (.-position (state sniper-button :target-ball))) 
+                    from-pos (.clone (.-position c))
+                    _ (set! (.. target-pos -y) (+ 0.4 (.. target-pos -y))) 
+                    _ (set! (.. from-pos -y) (+ 0.4 (.. from-pos -y))) 
+                    target-dir (.normalize (.subVectors dir target-pos from-pos))]
+                (.set raycaster
+                      from-pos
+                      target-dir)
+                (let [intersects
+                      (.intersectObjects raycaster (into-array
+                                                    #(not= ui %)
+                                                    (.-children gayo-data/scene)) true)]
+                  (when-let [hit-thing (first (filter #(and (.-face %)
+                                                            (not= 
+                                                             (or
+                                                              (state (.-object %) :parent)
+                                                              (.-object %)) c)
+                                                            (not (state (.-object %) :range)))
+                                                      intersects))]
+                    (.-point hit-thing))))]
+      (let [ps (.. aim-plane -geometry -attributes -position -array)
+            x 0
+            y 1
+            z 2
+            y-pos 0.2
+            
+            sp  (.-position (second main-chars))
+            ep  pos
+            
+            start (THREE/Vector2. (.-x sp) (.-z sp))
+            end   (THREE/Vector2. (.-x ep) (.-z ep))
+            angle (.angle (.subVectors (THREE/Vector2.) start end))
+            _ (save :lul2)
+            x-mod (* 0.5 (js/Math.sin angle))
+            z-mod (* 0.5 (- (js/Math.cos angle)))]
+        
+        
+        ;; 1 3
+        (.. (state sniper-button :target-ball) -position -x)
+        
+        
+        (aset ps (+ (* 0 3) x) (- (.-x end) x-mod))
+        (aset ps (+ (* 0 3) y) y-pos)            
+        (aset ps (+ (* 0 3) z) (- (.-y end) z-mod))            
+        
+        (aset ps (+ (* 1 3) x) (+ (.-x end) x-mod))
+        (aset ps (+ (* 1 3) y) y-pos)
+        (aset ps (+ (* 1 3) z) (+ (.-y end) z-mod))
+        
+        (aset ps (+ (* 2 3) x) (- (.-x start) x-mod))
+        (aset ps (+ (* 2 3) y) y-pos)      
+        (aset ps (+ (* 2 3) z) (- (.-y start) z-mod))      
+        
+        (aset ps (+ (* 3 3) x) (+ (.-x start) x-mod))      
+        (aset ps (+ (* 3 3) y) y-pos)      
+        (aset ps (+ (* 3 3) z) (+ (.-y start) z-mod))      
+        
+        (partition 3 ps)))
+    
+    (set! (.. aim-plane -geometry -attributes -position -needsUpdate) true))
+  
+  )
 
 (defn point-on-floor
   ([point]
@@ -346,11 +504,11 @@ distance(worldPosition.xz, clippingSphere1.xz) * sign(clippingSphere1.w) < clipp
     (do (println "revenge!"
                  (update-state! obj :revenge-damage + (* 0.5 amount)))
         (update-state! obj :hp - (* 0.5 amount))
-        (update-state! obj :stagger #(+ (or % 0) (* 1000 amount 0.1)))
+        (update-state! obj :stagger #(+ (or % 0) (* 500 amount 0.1)))
         (tw/shake-pos! (.-position obj) (THREE/Vector3. 0 0.1 0) #js {:duration 100}))
     
     (do (update-state! obj :hp - amount)
-        (update-state! obj :stagger #(+ (or % 0) (* 1000 amount 0.1)))
+        (update-state! obj :stagger #(+ (or % 0) (* 500 amount 0.1)))
         (update-state! obj :hitstun #(+ (or % 0) (* 200 amount)))
         (when-not (state obj :aims-at)
           (if-let [p (.-position dealer)]
@@ -758,7 +916,7 @@ distance(worldPosition.xz, clippingSphere1.xz) * sign(clippingSphere1.w) < clipp
         (if (some->> (state obj :aims-at) (alive?))
           (try (let [distance (.distanceTo from-pos (.. target -position))]
                  (if (<= distance (state obj :range))
-                   (do (state+ obj :cooldown (+ cooldown (rand-int 100)))
+                   (do (state+ obj :cooldown (+ (state obj :rate-of-fire) (rand-int 100)))
                        (js/setTimeout #(shoot obj) reaction-time))
                    (do (state+ obj :cooldown 1)
                        (let [dir (-> (.subVectors
@@ -776,7 +934,7 @@ distance(worldPosition.xz, clippingSphere1.xz) * sign(clippingSphere1.w) < clipp
                )
           (when (some->> target (enemy-of? obj))
             (save :crgeroca)
-            (state+ obj :cooldown (+ cooldown (rand-int 100)))
+            (state+ obj :cooldown (+ (state obj :rate-of-fire) (rand-int 100)))
             
             (state+ obj :aims-at target)
             (state+ obj :aims-at-last-pos (.clone (.-position target)))
@@ -955,64 +1113,66 @@ distance(worldPosition.xz, clippingSphere1.xz) * sign(clippingSphere1.w) < clipp
 
 (defn move-to-target
   [obj]
-  (when-let [target-pos (state obj :target)]
-    (let [distance (.distanceTo (.. obj -position) target-pos)
-          curr-pos (.clone (.-position obj))
-          dir (THREE/Vector3.)]
-      #_(state+ obj :aims-at nil)
-      
-      (save :que-pasta)
-      
-      (-> (.subVectors dir target-pos (.. obj -position))
-          .normalize
-          (.multiplyScalar (get-speed obj)))                
-      
-      (if (< distance snap-distance)
-        (do (.. obj -position (copy target-pos))
-            (state+ obj
-                    :target nil
-                    :speed 0))
-        (do (state+ obj :speed
-                    (if (< distance slowdown-distance)
-                      (min max-speed (max 0 (* distance 0.2)))
-                      (min max-speed (+ (state obj :speed) acc))))
-            (.. obj -position (set (+ (.. obj -position -x) (.-x dir))
-                                   (.. obj -position -y)
-                                   (+ (.. obj -position -z) (.-z dir))))
-            #_(try (validate-obj! obj)
-                   (catch js/Error e
-                     (println "in move-to-target")
-                     (save :tnhsaoe)
-                     (throw e)))))
-      
-      (let [p (THREE/Vector2.)]
-        (.set p (.. obj -position -x)
-              (.. obj -position -z))
-        (if-let [coll (coll-env? obj)]
-          (do
-            (let [v (.subVectors (THREE/Vector2.) p coll)]
-              (.. obj -position (copy curr-pos))
-              (if (> (.-x v) (.-y v))
-                (set! (.. obj -position -x)
-                      (+ (.. obj -position -x)
-                         (* 0.05 (.-x v))))
-                (set! (.. obj -position -z)
-                      (+ (.. obj -position -z)
-                         (* 0.05 (.-y v))))))
-            (save :thnaoes-env))
-          (if (coll-character? obj)
-            (do (.. obj -position (copy curr-pos))
-                (state+ obj
-                        :target nil
-                        :speed 0)))))
-      
-      (when-let [target (state obj :target-ball)]
-        (when-let [l (state target :line)]
-          (scene/remove-obj! l))      
+  (if (state obj :sniper-aiming)
+    (state+ obj :speed 0)
+    (when-let [target-pos (state obj :target)]
+      (let [distance (.distanceTo (.. obj -position) target-pos)
+            curr-pos (.clone (.-position obj))
+            dir (THREE/Vector3.)]
+        #_(state+ obj :aims-at nil)
         
-        (state+ target :line
-                (create-line! (.. obj -position (clone))
-                              (.. target -position (clone))))))))
+        (save :que-pasta)
+        
+        (-> (.subVectors dir target-pos (.. obj -position))
+            .normalize
+            (.multiplyScalar (get-speed obj)))                
+        
+        (if (< distance snap-distance)
+          (do (.. obj -position (copy target-pos))
+              (state+ obj
+                      :target nil
+                      :speed 0))
+          (do (state+ obj :speed
+                      (if (< distance slowdown-distance)
+                        (min max-speed (max 0 (* distance 0.2)))
+                        (min max-speed (+ (state obj :speed) acc))))
+              (.. obj -position (set (+ (.. obj -position -x) (.-x dir))
+                                     (.. obj -position -y)
+                                     (+ (.. obj -position -z) (.-z dir))))
+              #_(try (validate-obj! obj)
+                     (catch js/Error e
+                       (println "in move-to-target")
+                       (save :tnhsaoe)
+                       (throw e)))))
+        
+        (let [p (THREE/Vector2.)]
+          (.set p (.. obj -position -x)
+                (.. obj -position -z))
+          (if-let [coll (coll-env? obj)]
+            (do
+              (let [v (.subVectors (THREE/Vector2.) p coll)]
+                (.. obj -position (copy curr-pos))
+                (if (> (.-x v) (.-y v))
+                  (set! (.. obj -position -x)
+                        (+ (.. obj -position -x)
+                           (* 0.05 (.-x v))))
+                  (set! (.. obj -position -z)
+                        (+ (.. obj -position -z)
+                           (* 0.05 (.-y v))))))
+              (save :thnaoes-env))
+            (if (coll-character? obj)
+              (do (.. obj -position (copy curr-pos))
+                  (state+ obj
+                          :target nil
+                          :speed 0)))))
+        
+        (when-let [target (state obj :target-ball)]
+          (when-let [l (state target :line)]
+            (scene/remove-obj! l))      
+          
+          (state+ target :line
+                  (create-line! (.. obj -position (clone))
+                                (.. target -position (clone)))))))))
 
 (defn die
   [obj]
@@ -1062,26 +1222,26 @@ distance(worldPosition.xz, clippingSphere1.xz) * sign(clippingSphere1.w) < clipp
 
 (defn refresh-range-ball
   [obj]
-  #_(let [tb (state obj :range-ball)
-          range (* 3 (state obj :range))]
-      
-      (if (state obj :revenge)
-        (.. tb -scale (set (* 2 (state obj :revenge-damage))
-                           1
-                           (* 2 (state obj :revenge-damage))))
-        (.. tb -scale (set range 1 range)))
-      
-      (set! (.. tb -material -opacity)
-            (if (state obj :dragging)
-              0.5
-              (if (= selected obj)
-                0.3
-                0.0)))
-      
-      (.. tb -position (copy (.. obj -position)))
-      
-      (set! (.. tb -material -map)
-            (.. (state obj :model) -material -map))))
+  (let [tb (state obj :range-ball)
+        range (* 3 (state obj :range))]
+    
+    (if (state obj :revenge)
+      (.. tb -scale (set (* 2 (state obj :revenge-damage))
+                         1
+                         (* 2 (state obj :revenge-damage))))
+      (.. tb -scale (set range 1 range)))
+    
+    (set! (.. tb -material -opacity)
+          (if (state obj :dragging)
+            0.5
+            (if (= selected obj)
+              0.3
+              0.0)))
+    
+    (.. tb -position (copy (.. obj -position)))
+    
+    (set! (.. tb -material -map)
+          (.. (state obj :model) -material -map))))
 
 (defn drag-target
   [obj pos]
@@ -1154,10 +1314,10 @@ distance(worldPosition.xz, clippingSphere1.xz) * sign(clippingSphere1.w) < clipp
     (.. plane -material -uniforms -clippingSphere -value (copy (.-position o)))
     (set! (.. plane -material -uniforms -clippingSphere -value -z)
           (+ 1.8 (.. plane -material -uniforms -clippingSphere -value -z)))
-    (set! (.. plane -material -uniforms -clippingSphere -value -w) 2)
+    (set! (.. plane -material -uniforms -clippingSphere -value -w) 2.5)
     
     (.. plane2 -material -uniforms -clippingSphere -value (copy (.-position o)))
-    (set! (.. plane2 -material -uniforms -clippingSphere -value -w) 3)
+    (set! (.. plane2 -material -uniforms -clippingSphere -value -w) 4)
     (set! (.. plane2 -material -uniforms -clippingSphere -value -z)
           (+ 1.8 (.. plane2 -material -uniforms -clippingSphere -value -z)))
     
@@ -1167,10 +1327,10 @@ distance(worldPosition.xz, clippingSphere1.xz) * sign(clippingSphere1.w) < clipp
     (.. plane -material -uniforms -clippingSphere1 -value (copy (.-position o)))
     (set! (.. plane -material -uniforms -clippingSphere1 -value -z)
           (+ 1.8 (.. plane -material -uniforms -clippingSphere1 -value -z)))
-    (set! (.. plane -material -uniforms -clippingSphere1 -value -w) 2)
+    (set! (.. plane -material -uniforms -clippingSphere1 -value -w) 2.5)
     
     (.. plane2 -material -uniforms -clippingSphere1 -value (copy (.-position o)))
-    (set! (.. plane2 -material -uniforms -clippingSphere1 -value -w) 3)
+    (set! (.. plane2 -material -uniforms -clippingSphere1 -value -w) 4)
     (set! (.. plane2 -material -uniforms -clippingSphere1 -value -z)
           (+ 1.8 (.. plane2 -material -uniforms -clippingSphere1 -value -z)))
     
@@ -1248,6 +1408,8 @@ distance(worldPosition.xz, clippingSphere1.xz) * sign(clippingSphere1.w) < clipp
 
 (defn reset-chars!
   []
+  (init-shadow-planes)
+  
   (set! coll-thingy (vec (scene/find-meshes-name-starts-with gayo-data/scene "Hitbox")))
   
   (doseq [ct coll-thingy]
@@ -1378,9 +1540,11 @@ distance(worldPosition.xz, clippingSphere1.xz) * sign(clippingSphere1.w) < clipp
   (add-shield (first main-chars))
   
   (state+ (first main-chars) :range close-range)
-  (state+ (first main-chars) :hit-chance-bonus 1.3)
-  (state+ (first main-chars) :damage 1)
+  #_(state+ (first main-chars) :hit-chance-bonus 1.3)
+  (state+ (first main-chars) :range far-range)
+  (state+ (first main-chars) :rate-of-fire 500)
   (state+ (second main-chars) :range far-range)
+  (state+ (second main-chars) :rate-of-fire 3000)
   
   #_(state+ (get main-chars 2) :range far-range)
   
@@ -1391,6 +1555,8 @@ distance(worldPosition.xz, clippingSphere1.xz) * sign(clippingSphere1.w) < clipp
     (state+ enemy :cant-aim nil)
     
     (state+ enemy :npc true)
+    
+    (state+ enemy :rate-of-fire 500)
     
     (state+ enemy :model (or (find-mesh-name-starts-with enemy "Animation Root")
                              enemy))
@@ -1447,7 +1613,7 @@ distance(worldPosition.xz, clippingSphere1.xz) * sign(clippingSphere1.w) < clipp
                             (.. tb -position (clone))))))
   (println "skill!"))
 
-(defn release-skill
+(defn grenade-release-skill
   [button]
   (println "skill!")
   
@@ -1461,15 +1627,62 @@ distance(worldPosition.xz, clippingSphere1.xz) * sign(clippingSphere1.w) < clipp
                        (scene/remove-obj! o)) 1000)
       (tw/tween-pos! (.-position o) (.clone (.-position tb))))))
 
+(defn sniper-drag-skill
+  [obj pos]
+  (when-let [p (point-on-floor pos)]
+    (let [tb (state obj :target-ball)]
+      
+      (state+ obj :speed 0
+              :target nil)
+      
+      (.. tb -position (copy p))
+      
+      (when-let [l (state tb :line)]
+        (scene/remove-obj! l))      
+      
+      (state+ tb :line
+              (create-line! (.. selected -position (clone))
+                            (.. tb -position (clone))))))
+  (println "skill!"))
+
+(defn sniper-release-skill
+  [button shooter]
+  (let [standard-range (state shooter :range)
+        standard-damage (state shooter :damage)
+        standard-rate-of-fire (state shooter :rate-of-fire)]
+    
+    (state+ shooter :cooldown 5000
+            :hit-chance-bonus 5
+            :range 0)
+    (state+ shooter :damage 10)
+    (state+ shooter :rate-of-fire 5000)
+    (state+ shooter :sniper-aiming true
+            :target nil)
+    
+    (sniper-aim)
+    
+    (println "start aiming")
+    
+    (hook+ shooter :update :stop-aiming (fn [o]
+                                          (when (or (< 0.01 (state o :speed))
+                                                    (state o :target))
+                                            (println "stop aiming")
+                                            (hook- shooter :update :stop-aiming)
+                                            
+                                            (set! (.-visible aim-plane) false)
+
+                                            (state+ shooter
+                                                    :sniper-aiming false
+                                                    :range standard-range
+                                                    :damage standard-damage
+                                                    :rate-of-fire standard-rate-of-fire))))))
+
 (defn init
   [scene loaded-gltf conf-k]
   
   (set! ui (THREE/Object3D.))
   (ensure-state! ui)
   (.add scene ui)
-  
-  (.add ui plane)
-  (.add ui plane2)
   
   (set! select-box (sprite! nil))
   
@@ -1493,7 +1706,7 @@ distance(worldPosition.xz, clippingSphere1.xz) * sign(clippingSphere1.w) < clipp
   (let [light (THREE/AmbientLight. 0xffffff)]
     (ensure-state! light)
     (save :add-light1)
-    (set! (.. light -intensity) 1)
+    (set! (.. light -intensity) 2)
     (.add scene light))
   
   (reset-chars!)
@@ -1510,21 +1723,24 @@ distance(worldPosition.xz, clippingSphere1.xz) * sign(clippingSphere1.w) < clipp
               (state+ b :offset offset)
               (select b))))
   
+  (p/then (add-button! nil)
+          (fn [b]
+            (set! sniper-button b)
+
+            (set! (.-name b) "Left Skill")
+            (set! (.. b -material -map) (.. (state (get main-chars 1) :model) -material -map))
+            (state+ b :offset 0)
+            (state+ b :offset-y 1.5)
+            
+            (state+ b :drag #'drag-skill)
+            (state+ b :drag-release #(sniper-release-skill % (get main-chars 1)))
+            
+            (set! skill-buttons (assoc skill-buttons 0 b))
+            
+            (add-target-ball! b)))
+  
   (comment
     ;; skills are overkill atm
-    (p/then (add-button! nil)
-            (fn [b]
-              (set! (.-name b) "Left Skill")
-              (set! (.. b -material -map) (.. (state (get main-chars 0) :model) -material -map))
-              (state+ b :offset -1.5)
-              (state+ b :offset-y 1.5)
-              
-              (state+ b :drag #'drag-skill)
-              (state+ b :drag-release #'release-skill)
-              
-              (set! skill-buttons (assoc skill-buttons 0 b))
-              
-              (add-target-ball! b)))
     
     (p/then (add-button! #(revenge! selected))
             (fn [b]
@@ -1546,7 +1762,7 @@ distance(worldPosition.xz, clippingSphere1.xz) * sign(clippingSphere1.w) < clipp
                 (state+ b :offset-y 1.5)
                 
                 (state+ b :drag #'drag-skill)
-                (state+ b :drag-release #'release-skill)
+                (state+ b :drag-release #'grenade-release-skill)
                 
                 (set! skill-buttons (assoc skill-buttons 2 b))
                 
@@ -1666,8 +1882,7 @@ distance(worldPosition.xz, clippingSphere1.xz) * sign(clippingSphere1.w) < clipp
   
   (.setFromCamera raycaster point camera)
   (let [intersects (.intersectObjects raycaster 
-                                      (into-array 
-                                       (filter #(not= ui %) (.-children gayo-data/scene)))
+                                      (.-children gayo-data/scene)
                                       true)]
     (set! hitted intersects)
     (when-not (seq (clickables hitted))
@@ -1690,6 +1905,7 @@ distance(worldPosition.xz, clippingSphere1.xz) * sign(clippingSphere1.w) < clipp
                                                          (.-point %))))
                                 first))]
           (do (save :cgreo)
+              (println to-move)
               (let [to-move (or (state (.-object to-move) :parent) (.-object to-move))]
                 (save :croe)
                 (start-drag! to-move curr-pos)))
