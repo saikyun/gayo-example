@@ -288,6 +288,7 @@
             (tw/update-tweens! #_ 16 dt))
           (log! "loading!"))
         
+        (h/run-hooks! :first-update {:dt dt})
         (h/run-hooks! :update {:dt dt})
         (h/run-hooks! :second-update {:dt dt})      
         

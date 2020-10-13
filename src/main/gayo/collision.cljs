@@ -72,9 +72,14 @@
     p
     false))
 
-(defn circle-circle
-  [c1-pos r1 c2-pos r2]
-  (<= (.distanceTo c1-pos c2-pos) (+ r1 r2)))
+(let [p (THREE/Vector2.)]
+  (defn circle-circle
+    [c1-pos r1 c2-pos r2]
+    (let [dist (.distanceTo c1-pos c2-pos)]
+      (when (<= dist (+ r1 r2))
+        (-> (.subVectors p c1-pos c2-pos)
+            (.setLength dist)
+            (.add c2-pos))))))
 
 (println "Point circle")
 

@@ -23,11 +23,12 @@
    (hook+ obj kind hook-name f nil))
   ([obj kind hook-name f opts]
    (swap! all-hooks update kind
-          (fn [hs] 
-            (conj
-             (filter #(not (and (= (:obj %) obj)
-                                (= (:hook-name %) hook-name))) hs)
-             (->hook obj kind hook-name f opts))))
+          (fn [hs]
+            (vec
+             (conj
+              (filter #(not (and (= (:obj %) obj)
+                                 (= (:hook-name %) hook-name))) hs)
+              (->hook obj kind hook-name f opts)))))
    :ok))
 
 (defn clear-all-hooks!

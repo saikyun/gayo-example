@@ -69,6 +69,11 @@
   [obj]
   (state/ensure-state! obj)
   
+  (when (.. obj -userData -fixZ)
+    (save :hocera)
+    (println "fix-z")
+    )
+  
   (when (.. obj -userData -transparent)
     (log! "TRANSPARENT")
     (set! (.. obj -material -transparent) true)
@@ -97,10 +102,16 @@
 (comment
   (.traverse gayo.data/scene
              (fn [v] (println v)))
-  
-  
+
+
+  (.set (.-rotation (find-mesh-by-name gayo.data/scene
+                                       "Gun")) 0 js/Math.PI 0)
   
 
+  
+  
+  
+  
   (->> (let [stuff (transient [])]
          (.traverse gayo.data/scene
                     (fn [v] (when-not (.-state v)

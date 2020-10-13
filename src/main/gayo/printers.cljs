@@ -32,7 +32,7 @@
   IPrintWithWriter
   (-pr-writer [a writer opts]
     (-write writer "#Euler[")
-    (-write writer (str (.-x a) " " (.-y a) " " (.-z a)))
+    (-write writer (gstring/format "%.2f %.2f %.2f" (.-x a) (.-y a) (.-z a)))
     (-write writer "]")))
 
 (extend-type THREE/Quaternion

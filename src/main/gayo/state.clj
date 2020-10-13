@@ -25,7 +25,15 @@
 
 (defmacro state
   ([o]
-   `(cljs-bean.core/->clj (~'.-state ~o)))
+   `(if (= (type (~'.-state ~o)) reagent.ratom/RAtom)
+      (assoc (deref (~'.-state ~o))
+             :name (~'.. ~o ~'-userData ~'-name)
+             :rotation (~'.-rotation ~o)
+             :position (~'.-position ~o))
+      (assoc (cljs-bean.core/->clj (~'.-state ~o))
+             :name (~'.. ~o ~'-userData ~'-name)
+             :rotation (~'.-rotation ~o)
+             :position (~'.-position ~o))))
   ([o k]
    `(if (identical? ~o ~'gayo.state/watched-o)
       (~k @(~'.-state ~o))
@@ -43,9 +51,10 @@
 (defmacro state+
   ([o k v]
    `(if (identical? ~o ~'gayo.state/watched-o)
-      (do (debug ~o ~k ~v ~(meta &form))
-          (swap! (~'.-state ~o) assoc ~k ~v)
-          ~v)
+      (let [v# ~v]
+        (do (debug ~o ~k v# ~(meta &form))
+            (swap! (~'.-state ~o) assoc ~k v#)
+            v#))
       (set! ~(attr o k) ~v)))
   ([o k1 v1 & kvs]
    `(do (state+ ~o ~k1 ~v1)
